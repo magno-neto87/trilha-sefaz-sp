@@ -38,6 +38,9 @@ button { color: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #9bb9ff; outline-offset: 2px; }
 .app-shell { display: none; min-height: 100vh; }
 body.authenticated .app-shell { display: block; }
+
+[hidden] { display: none !important; }
+
 .auth-gate {
   align-items: center;
   background: var(--canvas);
