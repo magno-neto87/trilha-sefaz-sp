@@ -6,11 +6,46 @@
   <meta name="theme-color" content="#f5f7fb">
   <meta name="description" content="Seu espaço pessoal de estudos para concursos públicos.">
   <title>Trilha | Plataforma de estudos para concursos públicos</title>
-  <link rel="stylesheet" href="styles.css?v=ce3632c">
-  <script src="supabase-config.js?v=ce3632c" defer></script>
-  <script src="app.js?v=ce3632c" defer></script>
+  <link rel="stylesheet" href="styles.css?v=private-materials-1">
+  <script src="supabase-config.js?v=private-materials-1" defer></script>
+  <script src="app.js?v=private-materials-1" defer></script>
 </head>
 <body>
+  <div class="auth-gate" id="auth-gate">
+    <div class="auth-card">
+      <a class="brand auth-brand" href="#" aria-label="Trilha, início">
+        <span class="brand-mark">T</span>
+        <span><strong>TRILHA</strong><small>SEFAZ-SP PREP</small></span>
+      </a>
+      <section id="auth-setup" hidden>
+        <p class="eyebrow">ACESSO RESTRITO</p>
+        <h1>Configure o acesso</h1>
+        <p class="page-subtitle">O login e o armazenamento privado precisam estar configurados no Supabase antes de liberar os materiais. Consulte o README para concluir a configuração.</p>
+      </section>
+      <section id="auth-guest" hidden>
+        <p class="eyebrow">ACESSO RESTRITO</p>
+        <h1>Entre para acessar seus estudos</h1>
+        <p class="page-subtitle">Faça login para abrir os materiais e sincronizar seu histórico de estudos.</p>
+        <div class="auth-mode-switch" role="group" aria-label="Ação da conta">
+          <button class="button secondary selected" type="button" data-auth-mode="login">Entrar</button>
+          <button class="button secondary" type="button" data-auth-mode="signup">Criar conta</button>
+        </div>
+        <form id="auth-form">
+          <label class="form-label" id="auth-email-label" for="auth-email">E-mail</label>
+          <input class="form-control" id="auth-email" type="email" autocomplete="email" required>
+          <label class="form-label" id="auth-password-label" for="auth-password">Senha</label>
+          <input class="form-control" id="auth-password" type="password" autocomplete="current-password" minlength="8" required>
+          <button class="button auth-submit" id="auth-submit" type="submit" disabled>Entrar</button>
+        </form>
+        <button class="auth-text-button" id="auth-reset-password" type="button">Esqueci minha senha</button>
+        <p class="auth-message" id="auth-message" role="status" hidden></p>
+      </section>
+      <p class="loading-state" id="auth-waiting" hidden><span class="spinner"></span><span>Validando sua conta e carregando os materiais...</span></p>
+      <p class="auth-message" id="auth-access-error" role="alert" hidden></p>
+      <button class="button secondary auth-retry" id="auth-retry" type="button" hidden>Tentar novamente</button>
+      <p class="auth-footnote">Sua sessão é necessária para carregar os materiais privados.</p>
+    </div>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <a class="brand" href="#" aria-label="Trilha, início">
@@ -55,29 +90,6 @@
   </div>
   <dialog class="account-dialog" id="account-dialog" aria-label="Conta e sincronização">
     <button class="account-dialog-close" id="account-dialog-close" type="button" aria-label="Fechar">×</button>
-    <section id="auth-setup" hidden>
-      <p class="eyebrow">CONTA E SINCRONIZAÇÃO</p>
-      <h2>Ative seu login</h2>
-      <p class="page-subtitle">A conexão ainda não foi configurada. Siga as instruções de configuração do Supabase no README. Não coloque uma chave secreta ou service_role no site.</p>
-    </section>
-    <section id="auth-guest">
-      <p class="eyebrow">CONTA E SINCRONIZAÇÃO</p>
-      <h2>Seu histórico em qualquer dispositivo</h2>
-      <p class="page-subtitle">Crie uma conta ou entre para sincronizar tentativas, metas e organização dos estudos.</p>
-      <div class="auth-mode-switch" role="group" aria-label="Ação da conta">
-        <button class="button secondary selected" type="button" data-auth-mode="login">Entrar</button>
-        <button class="button secondary" type="button" data-auth-mode="signup">Criar conta</button>
-      </div>
-      <form id="auth-form">
-        <label class="form-label" id="auth-email-label" for="auth-email">E-mail</label>
-        <input class="form-control" id="auth-email" type="email" autocomplete="email" required>
-        <label class="form-label" id="auth-password-label" for="auth-password">Senha</label>
-        <input class="form-control" id="auth-password" type="password" autocomplete="current-password" minlength="8" required>
-        <button class="button auth-submit" id="auth-submit" type="submit">Entrar</button>
-      </form>
-      <button class="auth-text-button" id="auth-reset-password" type="button">Esqueci minha senha</button>
-      <p class="auth-message" id="auth-message" role="status" hidden></p>
-    </section>
     <section id="auth-user" hidden>
       <p class="eyebrow">CONTA CONECTADA</p>
       <h2 id="auth-user-email"></h2>

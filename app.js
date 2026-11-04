@@ -48,6 +48,7 @@ const state = {
   authMode: "login",
   authLoading: false,
   authGeneration: 0,
+  authError: null,
 };
 const view = document.getElementById("view");
 const notice = document.getElementById("notice");
@@ -152,8 +153,18 @@ function showAuthMessage(elementId, message) {
 function updateAccountUi() {
   const configured = Boolean(state.supabase);
   const hasUser = Boolean(state.authUser);
+  const hasAccess = hasUser && state.authLoaded && state.cloudReady && Boolean(state.manifest);
+  const recovering = state.authMode === "recovery";
+  document.getElementById("auth-gate").hidden = hasAccess;
+  document.body.classList.toggle("authenticated", hasAccess);
   document.getElementById("auth-setup").hidden = configured;
-  document.getElementById("auth-guest").hidden = !configured || hasUser;
+  document.getElementById("auth-guest").hidden = !configured || (hasUser && !recovering);
+  document.getElementById("auth-submit").disabled = !configured || state.authLoading;
+  document.getElementById("auth-waiting").hidden = !configured || (!hasUser && !recovering) || hasAccess || recovering || Boolean(state.authError);
+  const accessError = document.getElementById("auth-access-error");
+  accessError.hidden = !state.authError;
+  accessError.textContent = state.authError || "";
+  document.getElementById("auth-retry").hidden = !state.authError;
   document.getElementById("auth-user").hidden = !configured || !hasUser;
   document.getElementById("account-button").textContent = hasUser ? "Minha conta" : "Entrar";
   document.getElementById("account-name").textContent = hasUser
@@ -245,12 +256,18 @@ async function handleAuthSession(session) {
     state.authLoading = false;
     state.clearLocalOnSignOut = false;
     state.pendingImportKey = null;
+    state.authError = null;
+    state.manifest = null;
+    state.subjectCache.clear();
+    state.questionIndexCache = null;
+    view.replaceChildren();
     updateAccountUi();
     setSyncStatus("Salvo neste dispositivo");
     return;
   }
 
   state.authUser = nextUser;
+  state.authError = null;
   state.pendingImportKey = pendingImportStorageKey(nextUser.id);
   state.authLoaded = false;
   state.cloudReady = false;
@@ -267,14 +284,13 @@ async function handleAuthSession(session) {
   } catch (error) {
     if (state.authGeneration !== generation || state.authUser?.id !== nextUser.id) return;
     console.error("Não foi possível carregar o histórico da conta.", error);
+    state.authError = `Não foi possível validar esta conta: ${error.message}`;
     state.authLoaded = true;
     setSyncStatus("Falha ao carregar histórico", "error");
-    showNotice(`A conta foi conectada, mas não foi possível carregar o histórico: ${error.message}`);
   } finally {
     if (state.authGeneration === generation) state.authLoading = false;
   }
   updateAccountUi();
-  if (state.manifest && state.cloudReady) setTab(state.activeTab);
 }
 
 function saveCloudProgressNow() {
@@ -357,6 +373,20 @@ async function loadSupabaseSdk() {
   if (!window.supabase?.createClient) throw new Error("O cliente do Supabase não foi inicializado.");
 }
 
+async function loadPrivateJson(path) {
+  if (!state.supabase || !state.authUser) {
+    throw new Error("Entre na sua conta para acessar os materiais.");
+  }
+  const userId = state.authUser.id;
+  const bucket = window.TRILHA_SUPABASE_CONFIG.materialsBucket || "study-materials";
+  const { data, error } = await state.supabase.storage.from(bucket).download(path);
+  if (error) throw error;
+  if (state.authUser?.id !== userId || !state.cloudReady) {
+    throw new Error("A sessão terminou antes que o material fosse carregado.");
+  }
+  return JSON.parse(await data.text());
+}
+
 async function initializeAuth() {
   const config = window.TRILHA_SUPABASE_CONFIG;
   bindAuthEvents();
@@ -387,6 +417,7 @@ async function initializeAuth() {
   } catch (error) {
     console.error("Não foi possível iniciar o Supabase.", error);
     state.supabase = null;
+    state.authError = `Não foi possível iniciar o login: ${error.message}`;
     updateAccountUi();
     setSyncStatus("Falha ao conectar", "error");
     showNotice(`Não foi possível iniciar login e sincronização: ${error.message}`);
@@ -401,6 +432,7 @@ function bindAuthEvents() {
   document.getElementById("account-dialog-close").addEventListener("click", () => {
     document.getElementById("account-dialog").close();
   });
+  document.getElementById("auth-retry").addEventListener("click", () => window.location.reload());
   document.querySelectorAll("[data-auth-mode]").forEach((button) => {
     button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
   });
@@ -412,11 +444,14 @@ function bindAuthEvents() {
     const submit = document.getElementById("auth-submit");
     submit.disabled = true;
     document.getElementById("auth-message").hidden = true;
+    state.authLoading = true;
+    updateAccountUi();
     try {
       if (state.authMode === "recovery") {
         const { error } = await state.supabase.auth.updateUser({ password });
         if (error) throw error;
         setAuthMode("login");
+        await loadStudyMaterials();
         showAuthMessage("auth-message", "Senha alterada. Agora você já pode entrar.");
         return;
       }
@@ -427,19 +462,23 @@ function bindAuthEvents() {
           setAuthMode("login");
           showAuthMessage("auth-message", "Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.");
         } else {
-          document.getElementById("account-dialog").close();
+          await handleAuthSession(data.session);
+          await loadStudyMaterials();
         }
         return;
       }
       const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       await handleAuthSession(data.session);
-      document.getElementById("account-dialog").close();
+      await loadStudyMaterials();
+      const dialog = document.getElementById("account-dialog");
+      if (dialog.open) dialog.close();
     } catch (error) {
       console.error("A autenticação falhou.", error);
       showAuthMessage("auth-message", error.message);
     } finally {
-      submit.disabled = false;
+      state.authLoading = false;
+      updateAccountUi();
     }
   });
   document.getElementById("auth-reset-password").addEventListener("click", async () => {
@@ -583,14 +622,12 @@ async function loadQuestionIndex() {
   if (state.questionIndexCache) return state.questionIndexCache;
   const file = state.manifest.questionIndexFile || "question-index.json";
   try {
-    const response = await fetch(`data/${file}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Não foi possível carregar o índice de assuntos e bancas (${response.status}).`);
-    const data = await response.json();
+    const data = await loadPrivateJson(file);
     state.questionIndexCache = new Map((data.questions || []).map((question) => [question.id, question]));
   } catch (error) {
     console.error(error);
     state.questionIndexCache = new Map();
-    showNotice("Assuntos e bancas não estão indexados. Rode novamente python extractor.py para atualizar os dados.");
+    showNotice(`Não foi possível carregar o índice privado de assuntos e bancas: ${error.message}`);
   }
   return state.questionIndexCache;
 }
@@ -616,15 +653,13 @@ async function loadSubject(subjectId = state.subjectId) {
   const subject = state.manifest.subjects.find((item) => item.id === subjectId);
   if (!subject) throw new Error("Disciplina não encontrada no índice de materiais.");
   if (state.subjectCache.has(subjectId)) return state.subjectCache.get(subjectId);
-  const response = await fetch(`data/${subject.file}`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Não foi possível carregar os materiais de ${subject.name} (${response.status}).`);
-  const data = await response.json();
+  const data = await loadPrivateJson(subject.file);
   state.subjectCache.set(subjectId, data);
   return data;
 }
 
 function setTab(tab) {
-  if (!state.manifest) return;
+  if (!state.manifest || !state.authUser || !state.cloudReady) return;
   state.activeTab = tab;
   document.querySelectorAll(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
   breadcrumb.textContent = {
@@ -2093,9 +2128,7 @@ document.getElementById("mobile-scrim").addEventListener("click", () => {
   document.getElementById("mobile-scrim").classList.remove("visible");
 });
 document.getElementById("help-button").addEventListener("click", () => {
-  showNotice(state.authUser && state.cloudReady
-    ? "Conteúdos são públicos. Seu histórico é sincronizado com sua conta Supabase e também mantido neste navegador enquanto você estiver conectado."
-    : "Conteúdos importados dos arquivos Markdown locais. Sem uma conta conectada, seu progresso fica armazenado apenas neste navegador.");
+  showNotice("Os materiais são carregados do armazenamento privado somente depois que sua conta é autenticada. Seu histórico também é sincronizado com sua conta Supabase.");
 });
 document.addEventListener("keydown", (event) => {
   if (state.activeTab !== "flashcards" || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
@@ -2114,18 +2147,31 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-async function start() {
+async function loadStudyMaterials() {
+  if (!state.supabase || !state.authUser || !state.cloudReady) return;
+  state.authError = null;
   try {
-    await initializeAuth();
-    const response = await fetch("data/manifest.json", { cache: "no-store" });
-    if (!response.ok) throw new Error(`Índice de materiais não encontrado (${response.status}).`);
-    state.manifest = await response.json();
+    state.manifest = await loadPrivateJson("manifest.json");
     state.subjectId = state.manifest.subjects[0]?.id || null;
     buildNavigation();
+    updateAccountUi();
     renderDashboard();
   } catch (error) {
     console.error(error);
-    view.innerHTML = `<div class="empty-state">Não foi possível carregar os materiais. ${escapeHtml(error.message)}<br><br>Execute <code>python extractor.py</code> e depois <code>python -m http.server 8000</code> nesta pasta.</div>`;
+    state.authError = `Não foi possível carregar os materiais privados: ${error.message}`;
+    updateAccountUi();
+  }
+}
+
+async function start() {
+  try {
+    await initializeAuth();
+    await loadStudyMaterials();
+    updateAccountUi();
+  } catch (error) {
+    console.error(error);
+    state.authError = `Não foi possível carregar os materiais privados: ${error.message}`;
+    updateAccountUi();
   }
 }
 
