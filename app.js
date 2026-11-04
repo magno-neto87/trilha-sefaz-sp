@@ -156,6 +156,15 @@ function updateAccountUi() {
   document.getElementById("auth-guest").hidden = !configured || hasUser;
   document.getElementById("auth-user").hidden = !configured || !hasUser;
   document.getElementById("account-button").textContent = hasUser ? "Minha conta" : "Entrar";
+  document.getElementById("account-name").textContent = hasUser
+    ? state.authUser.email || "Minha conta"
+    : "Meu espaço";
+  document.getElementById("account-storage-label").textContent = hasUser && state.cloudReady
+    ? "Histórico sincronizado"
+    : "Progresso neste dispositivo";
+  document.getElementById("account-storage-indicator").title = hasUser && state.cloudReady
+    ? "Histórico sincronizado com sua conta"
+    : "Dados salvos localmente";
   if (!hasUser) return;
 
   document.getElementById("auth-user-email").textContent = state.authUser.email || "Conta conectada";
@@ -766,7 +775,7 @@ async function renderDashboard() {
     <div class="page-heading"><div><p class="eyebrow">PLATAFORMA DE CONCURSO</p><div class="page-badge">SEFAZ-SP</div><h1>Preparação estratégica</h1><p class="page-subtitle">Acompanhe seu ritmo, revise conteúdos e converta estudo em desempenho real na prova.</p></div><button class="button" data-action="continue">Continuar rotina <span>→</span></button></div>
     <div class="stats-grid">
       <article class="card stat-card"><div class="stat-top"><span>Taxa geral de acertos</span><span class="stat-icon">↗</span></div><div class="stat-value">${accuracy}%</div><div class="stat-note">${correct} acertos · ${wrong} erros</div></article>
-      <article class="card stat-card"><div class="stat-top"><span>Questões respondidas</span><span class="stat-icon">☑</span></div><div class="stat-value">${attempts.length.toLocaleString("pt-BR")}</div><div class="stat-note">Histórico salvo neste dispositivo</div></article>
+      <article class="card stat-card"><div class="stat-top"><span>Questões respondidas</span><span class="stat-icon">☑</span></div><div class="stat-value">${attempts.length.toLocaleString("pt-BR")}</div><div class="stat-note">${state.authUser && state.cloudReady ? "Histórico sincronizado com sua conta" : "Histórico salvo neste dispositivo"}</div></article>
       <article class="card stat-card"><div class="stat-top"><span>Tempo médio por questão</span><span class="stat-icon">◷</span></div><div class="stat-value">${averageSeconds === null ? "—" : formatDuration(averageSeconds)}</div><div class="stat-note">${timeSamples.length ? `${timeSamples.length} tempos registrados` : "Disponível nas novas respostas"}</div></article>
       <article class="card stat-card"><div class="stat-top"><span>Previsão de desempenho</span><span class="stat-icon">⌁</span></div><div class="stat-value prediction-value">${prediction}</div><div class="stat-note">${predictionNote}</div></article>
     </div>
@@ -778,7 +787,7 @@ async function renderDashboard() {
     </div>
     <article class="card panel dashboard-wide"><div class="panel-heading"><div><h2>Evolução dos acertos</h2><p>Percentual de acerto por semana · últimas oito semanas</p></div></div>${trendChart}</article>
     <article class="card panel dashboard-wide"><div class="panel-heading"><div><h2>Mapa de calor por assunto</h2><p>Verde: ≥75% após 3 respostas · vermelho: &lt;50% · amarelo: em desenvolvimento · cinza: poucas respostas</p></div></div>${heatmap}</article>
-    <div class="dashboard-footer"><span>✦</span><span><strong>Seu progresso fica privado.</strong> As respostas e os mapas salvos ficam apenas neste navegador.</span></div>
+    <div class="dashboard-footer"><span>✦</span><span><strong>${state.authUser && state.cloudReady ? "Seu progresso está vinculado à sua conta." : "Seu progresso fica neste dispositivo."}</strong> ${state.authUser && state.cloudReady ? "Somente sua conta autenticada pode acessar seu histórico." : "Entre ou crie uma conta para sincronizar o histórico entre dispositivos."}</span></div>
     <div class="quick-grid">
       <button class="quick-card" data-go="contents"><span class="quick-icon">▤</span><span><strong>Revisar conteúdos</strong><small>Leia os materiais por disciplina</small></span></button>
       <button class="quick-card" data-go="questions"><span class="quick-icon">☑</span><span><strong>Praticar questões</strong><small>Teste seus conhecimentos</small></span></button>
