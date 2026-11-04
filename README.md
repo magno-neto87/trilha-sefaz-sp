@@ -49,9 +49,9 @@ O site é estático e não guarda senhas por conta própria. Para habilitar cont
 
 As senhas são gerenciadas pelo Supabase e não são gravadas no histórico da aplicação. O botão **Esqueci minha senha** envia um link de redefinição. Tentativas, simulados e dados de organização continuam sincronizados por conta. Se houver progresso local neste navegador, ele fica preservado e pode ser mesclado pela opção **Importar histórico deste dispositivo** depois da entrada.
 
-### Atenção: repositório público e histórico antigo
+### Atenção: repositório público e cópias antigas
 
-O GitHub Pages publica os arquivos do repositório. Os materiais e os arquivos `data/*.json` que já foram enviados anteriormente continuam acessíveis nas versões antigas do histórico público, mesmo depois de removidos da versão atual. Esta alteração de acesso não apaga essas cópias históricas. Para eliminar a exposição passada seria necessário reescrever o histórico Git e forçar uma atualização do repositório; faça isso somente após confirmar que quer remover os commits antigos. Os arquivos originais no computador devem ser preservados em uma cópia local antes de qualquer limpeza do histórico.
+Os materiais foram removidos dos arquivos publicados e o histórico público do GitHub foi reescrito para remover esses arquivos dos commits anteriores. Isso alterou os identificadores dos commits e da tag `v1.0`. Cópias já baixadas por terceiros ou mantidas em forks e clones não podem ser recolhidas. Os arquivos originais e o histórico anterior foram preservados localmente; não publique a branch local `local-backup/material-history-before-rewrite`, pois ela contém as versões antigas dos materiais.
 
 ## Testes
 
