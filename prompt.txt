@@ -1,0 +1,27 @@
+Atue como um Engenheiro de Software Full-Stack Especialista e UI/UX Designer. O meu objetivo é criar uma plataforma de estudos profissional voltada para concursos públicos. 
+
+Eu tenho uma base de dados local organizada da seguinte forma: uma pasta principal contendo várias subpastas. O nome de cada subpasta representa uma disciplina (ex: "Direito Constitucional", "Português"). Dentro dessas subpastas, existem arquivos Markdown (.md) que contêm o material de estudo, divididos entre textos de conteúdo e questões (com gabarito e solução).
+
+Preciso que você desenvolva a solução completa para este projeto, dividida em duas partes principais:
+
+PARTE 1: SCRIPT DE EXTRAÇÃO DE DADOS
+Crie um script (preferencialmente em Python ou Node.js) que:
+1. Varra a estrutura de pastas e subpastas.
+2. Leia os arquivos .md e faça o parse/separação inteligente do que é "Conteúdo Teórico" e do que é "Questão" (identificando o enunciado, alternativas, gabarito e solução).
+3. Converta e exporte esses dados extraídos para um formato estruturado (como um arquivo JSON ou um banco de dados SQLite) para alimentar o site.
+
+PARTE 2: DESENVOLVIMENTO DO SITE (FRONTEND)
+Crie um site com layout altamente profissional, moderno e responsivo (recomendo usar React/Next.js com Tailwind CSS, ou a stack que julgar mais adequada). O site deve ter navegação lateral ou superior e conter as seguintes abas/funcionalidades:
+
+1. Aba "Conteúdos": Um leitor agradável para os textos teóricos, categorizado por disciplina. Deve suportar a formatação original do Markdown (negritos, tabelas, listas).
+2. Aba "Questões": Uma interface interativa onde eu possa resolver as questões filtradas por disciplina. Ao responder, o sistema deve mostrar se acertei ou errei, revelar o gabarito e exibir a solução detalhada do arquivo.
+3. Aba "Dashboard": Um painel de desempenho visual (com gráficos usando bibliotecas como Chart.js ou Recharts) mostrando métricas de acertos/erros gerais e desempenho isolado por disciplina.
+4. Aba "Mapas Mentais": Uma seção onde os conceitos principais possam ser visualizados ou onde eu possa inserir links/imagens de mapas mentais renderizados a partir dos conteúdos.
+5. Aba "Flashcards": Um sistema de cartões de memorização gerados a partir de resumos curtos, com funcionalidade de virar o cartão (flip) para ver a resposta.
+
+REQUISITOS DE DESIGN:
+- Paleta de cores focada em produtividade (tons de azul, branco, cinza e destaques em verde/vermelho para acertos e erros).
+- Interface limpa (clean), sem poluição visual, lembrando plataformas premium de estudos.
+
+caminho das subpastas:C:\Users\Magno Santos\OneDrive\Desktop\ESTUDO\_Estrategia_SEFAZ-SP_2025\zip\extraidos
+Por favor, forneça o passo a passo da implementação, a estrutura de arquivos recomendada e os códigos completos do script de extração e dos componentes principais do site.

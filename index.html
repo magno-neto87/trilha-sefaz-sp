@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fb">
+  <meta name="description" content="Seu espaço pessoal de estudos para concursos públicos.">
+  <title>Trilha | Plataforma de estudos para concursos públicos</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" aria-label="Trilha, início">
+        <span class="brand-mark">T</span>
+        <span><strong>TRILHA</strong><small>SEFAZ-SP PREP</small></span>
+      </a>
+      <div class="sidebar-label">ESPAÇO DE ESTUDO</div>
+      <nav class="primary-nav" aria-label="Navegação principal">
+        <button class="nav-link active" data-tab="dashboard"><span class="nav-icon">⌂</span>Visão geral</button>
+        <button class="nav-link" data-tab="contents"><span class="nav-icon">▤</span>Conteúdos</button>
+        <button class="nav-link" data-tab="questions"><span class="nav-icon">☑</span>Questões<span class="nav-count" id="question-count">—</span></button>
+        <button class="nav-link" data-tab="mindmaps"><span class="nav-icon">⌘</span>Mapas mentais</button>
+        <button class="nav-link" data-tab="flashcards"><span class="nav-icon">▱</span>Flashcards</button>
+        <button class="nav-link" data-tab="organization"><span class="nav-icon">▦</span>Organização dos estudos</button>
+      </nav>
+      <div class="sidebar-subjects">
+        <div class="sidebar-label subject-label">SUAS DISCIPLINAS <span id="subject-count">—</span></div>
+        <div id="subject-list" class="subject-list"></div>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="avatar">MS</div>
+        <div><strong>Meu espaço</strong><small>Progresso neste dispositivo</small></div>
+        <span class="online-dot" title="Dados salvos localmente"></span>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
+        <div class="breadcrumbs"><span>SEFAZ-SP</span><span class="crumb-sep">/</span><strong id="breadcrumb">Visão geral</strong></div>
+        <div class="top-actions">
+          <span class="local-status"><span class="online-dot"></span>Salvo neste dispositivo</span>
+          <button class="icon-button" id="help-button" aria-label="Sobre os dados" title="Sobre os dados">i</button>
+        </div>
+      </header>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section id="view" class="view" aria-live="polite">
+        <div class="loading-state"><span class="spinner"></span><span>Preparando seu espaço de estudos...</span></div>
+      </section>
+    </main>
+  </div>
+  <div class="mobile-scrim" id="mobile-scrim"></div>
+</body>
+</html>
