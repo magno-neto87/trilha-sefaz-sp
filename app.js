@@ -37,6 +37,17 @@ const state = {
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   timerInterval: null,
   reviewQuestionId: null,
+  supabase: null,
+  authUser: null,
+  authLoaded: false,
+  cloudReady: false,
+  cloudSaveTimer: null,
+  cloudSavePromise: Promise.resolve(true),
+  pendingImportKey: null,
+  clearLocalOnSignOut: false,
+  authMode: "login",
+  authLoading: false,
+  authGeneration: 0,
 };
 const view = document.getElementById("view");
 const notice = document.getElementById("notice");
@@ -55,6 +66,7 @@ function readStorage(key, fallback) {
 function writeStorage(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    queueCloudSave();
   } catch (error) {
     console.error(`Não foi possível salvar ${key} no armazenamento local.`, error);
     showNotice("Não foi possível salvar seu progresso neste dispositivo. Verifique o espaço disponível no navegador.");
@@ -64,6 +76,398 @@ function writeStorage(key, value) {
 function showNotice(message) {
   notice.textContent = message;
   notice.hidden = false;
+}
+
+function getProgressSnapshot() {
+  return Object.fromEntries(Object.values(STORAGE_KEYS).flatMap((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? [] : [[key, JSON.parse(raw)]];
+    } catch (error) {
+      console.error(`Não foi possível preparar ${key} para sincronização.`, error);
+      return [];
+    }
+  }));
+}
+
+function hasProgress(snapshot) {
+  return Object.values(snapshot).some((value) => (
+    Array.isArray(value) ? value.length > 0
+      : value && typeof value === "object" ? Object.keys(value).length > 0
+        : value !== null && value !== undefined && value !== ""
+  ));
+}
+
+function applyProgressSnapshot(snapshot) {
+  for (const key of Object.values(STORAGE_KEYS)) {
+    if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+      localStorage.setItem(key, JSON.stringify(snapshot[key]));
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+function mergeProgressSnapshots(local, remote) {
+  const merged = {};
+  for (const key of Object.values(STORAGE_KEYS)) {
+    const localValue = local[key];
+    const remoteValue = remote[key];
+    if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
+      const items = new Map();
+      for (const item of [...remoteValue, ...localValue]) {
+        const identity = item && typeof item === "object" && item.id
+          ? `id:${item.id}`
+          : JSON.stringify(item);
+        items.set(identity, item);
+      }
+      merged[key] = [...items.values()];
+    } else if (
+      localValue && typeof localValue === "object" && !Array.isArray(localValue)
+      && remoteValue && typeof remoteValue === "object" && !Array.isArray(remoteValue)
+    ) {
+      merged[key] = { ...localValue, ...remoteValue };
+    } else {
+      merged[key] = remoteValue ?? localValue;
+    }
+  }
+  return merged;
+}
+
+function setSyncStatus(message, stateName = "local") {
+  const label = document.getElementById("sync-label");
+  const indicator = document.getElementById("sync-indicator");
+  if (!label || !indicator) return;
+  label.textContent = message;
+  indicator.classList.toggle("sync-error", stateName === "error");
+  indicator.title = stateName === "error" ? "Falha na sincronização" : message;
+}
+
+function showAuthMessage(elementId, message) {
+  const element = document.getElementById(elementId);
+  element.textContent = message;
+  element.hidden = false;
+}
+
+function updateAccountUi() {
+  const configured = Boolean(state.supabase);
+  const hasUser = Boolean(state.authUser);
+  document.getElementById("auth-setup").hidden = configured;
+  document.getElementById("auth-guest").hidden = !configured || hasUser;
+  document.getElementById("auth-user").hidden = !configured || !hasUser;
+  document.getElementById("account-button").textContent = hasUser ? "Minha conta" : "Entrar";
+  if (!hasUser) return;
+
+  document.getElementById("auth-user-email").textContent = state.authUser.email || "Conta conectada";
+  const pendingImport = state.cloudReady && state.pendingImportKey && localStorage.getItem(state.pendingImportKey);
+  document.getElementById("import-local-history").hidden = !pendingImport;
+  document.getElementById("auth-cloud-message").textContent = pendingImport
+    ? "Há um histórico deste dispositivo preservado separadamente. Você pode mesclá-lo com o histórico da conta."
+    : state.cloudReady
+      ? "Seu progresso é sincronizado com esta conta."
+      : "A conta está conectada, mas o histórico ainda não foi carregado. Verifique a configuração do Supabase.";
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode;
+  const recovery = mode === "recovery";
+  const email = document.getElementById("auth-email");
+  const password = document.getElementById("auth-password");
+  document.getElementById("auth-email-label").hidden = recovery;
+  email.hidden = recovery;
+  email.required = !recovery;
+  document.getElementById("auth-password-label").textContent = recovery ? "Nova senha" : "Senha";
+  password.autocomplete = recovery || mode === "signup" ? "new-password" : "current-password";
+  password.minLength = recovery || mode === "signup" ? 8 : 0;
+  document.getElementById("auth-submit").textContent = recovery
+    ? "Salvar nova senha"
+    : mode === "signup" ? "Criar conta" : "Entrar";
+  document.getElementById("auth-reset-password").hidden = mode !== "login";
+  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    button.hidden = recovery;
+    button.classList.toggle("selected", button.dataset.authMode === mode);
+  });
+  document.getElementById("auth-message").hidden = true;
+}
+
+function pendingImportStorageKey(userId) {
+  return `trilha-pending-import-v1:${userId}`;
+}
+
+function storePendingImport(key, snapshot) {
+  const existingRaw = localStorage.getItem(key);
+  const existing = existingRaw ? JSON.parse(existingRaw) : {};
+  const merged = mergeProgressSnapshots(snapshot, existing);
+  localStorage.setItem(key, JSON.stringify(merged));
+}
+
+async function loadCloudProgress(user, generation) {
+  state.pendingImportKey = pendingImportStorageKey(user.id);
+  const localSnapshot = getProgressSnapshot();
+  const { data, error } = await state.supabase
+    .from("user_progress")
+    .select("data")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (state.authGeneration !== generation || state.authUser?.id !== user.id) return;
+
+  if (data?.data && typeof data.data === "object") {
+    if (hasProgress(localSnapshot)) storePendingImport(state.pendingImportKey, localSnapshot);
+    applyProgressSnapshot(data.data);
+  } else if (hasProgress(localSnapshot)) {
+    storePendingImport(state.pendingImportKey, localSnapshot);
+    applyProgressSnapshot({});
+  }
+  state.cloudReady = true;
+}
+
+async function handleAuthSession(session) {
+  const nextUser = session?.user || null;
+  if (nextUser && state.authUser?.id === nextUser.id && (state.cloudReady || state.authLoading)) return;
+  const generation = ++state.authGeneration;
+  if (!nextUser) {
+    if (state.authUser && state.clearLocalOnSignOut && state.cloudReady) {
+      for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+    }
+    state.authUser = null;
+    state.authLoaded = true;
+    state.cloudReady = false;
+    state.authLoading = false;
+    state.clearLocalOnSignOut = false;
+    state.pendingImportKey = null;
+    updateAccountUi();
+    setSyncStatus("Salvo neste dispositivo");
+    return;
+  }
+
+  state.authUser = nextUser;
+  state.pendingImportKey = pendingImportStorageKey(nextUser.id);
+  state.authLoaded = false;
+  state.cloudReady = false;
+  state.authLoading = true;
+  updateAccountUi();
+  setSyncStatus("Carregando seu histórico...");
+  try {
+    await loadCloudProgress(nextUser, generation);
+    if (state.authGeneration !== generation || state.authUser?.id !== nextUser.id) return;
+    state.authLoaded = true;
+    setSyncStatus(localStorage.getItem(state.pendingImportKey)
+      ? "Histórico local aguardando importação"
+      : "Histórico sincronizado", "cloud");
+  } catch (error) {
+    if (state.authGeneration !== generation || state.authUser?.id !== nextUser.id) return;
+    console.error("Não foi possível carregar o histórico da conta.", error);
+    state.authLoaded = true;
+    setSyncStatus("Falha ao carregar histórico", "error");
+    showNotice(`A conta foi conectada, mas não foi possível carregar o histórico: ${error.message}`);
+  } finally {
+    if (state.authGeneration === generation) state.authLoading = false;
+  }
+  updateAccountUi();
+  if (state.manifest && state.cloudReady) setTab(state.activeTab);
+}
+
+function saveCloudProgressNow() {
+  if (!state.supabase || !state.authUser || !state.cloudReady) return Promise.resolve(false);
+  if (state.cloudSaveTimer) {
+    clearTimeout(state.cloudSaveTimer);
+    state.cloudSaveTimer = null;
+  }
+  const userId = state.authUser.id;
+  const snapshot = getProgressSnapshot();
+  state.cloudSavePromise = state.cloudSavePromise.catch(() => false).then(async () => {
+    if (state.authUser?.id !== userId || !state.cloudReady) return false;
+    const { error } = await state.supabase.from("user_progress").upsert({
+      user_id: userId,
+      data: snapshot,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    if (error) throw error;
+    if (state.authUser?.id === userId) setSyncStatus("Histórico sincronizado", "cloud");
+    return true;
+  });
+  return state.cloudSavePromise;
+}
+
+function queueCloudSave() {
+  if (!state.supabase || !state.authUser || !state.cloudReady) return;
+  if (state.cloudSaveTimer) clearTimeout(state.cloudSaveTimer);
+  setSyncStatus("Sincronizando...", "cloud");
+  state.cloudSaveTimer = setTimeout(() => {
+    state.cloudSaveTimer = null;
+    saveCloudProgressNow().catch((error) => {
+      console.error("Não foi possível sincronizar o histórico.", error);
+      setSyncStatus("Falha na sincronização", "error");
+      showNotice(`Seu progresso continua salvo neste dispositivo, mas não foi sincronizado: ${error.message}`);
+    });
+  }, 700);
+}
+
+async function importLocalHistory() {
+  if (!state.pendingImportKey || !state.authUser) return;
+  const button = document.getElementById("import-local-history");
+  const message = document.getElementById("auth-user-message");
+  button.disabled = true;
+  message.hidden = true;
+  try {
+    const localRaw = localStorage.getItem(state.pendingImportKey);
+    if (!localRaw) throw new Error("Não há histórico local pendente para importar.");
+    const pending = JSON.parse(localRaw);
+    const { data, error } = await state.supabase
+      .from("user_progress")
+      .select("data")
+      .eq("user_id", state.authUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    const merged = mergeProgressSnapshots(pending, data?.data || {});
+    applyProgressSnapshot(merged);
+    const saved = await saveCloudProgressNow();
+    if (!saved) throw new Error("A conta mudou ou a conexão ainda não está pronta.");
+    localStorage.removeItem(state.pendingImportKey);
+    updateAccountUi();
+    showAuthMessage("auth-user-message", "Histórico mesclado e sincronizado com sucesso.");
+    if (state.manifest) setTab(state.activeTab);
+  } catch (error) {
+    console.error("Não foi possível importar o histórico local.", error);
+    showAuthMessage("auth-user-message", `Não foi possível importar: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadSupabaseSdk() {
+  if (window.supabase?.createClient) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Não foi possível carregar o cliente do Supabase."));
+    document.head.append(script);
+  });
+  if (!window.supabase?.createClient) throw new Error("O cliente do Supabase não foi inicializado.");
+}
+
+async function initializeAuth() {
+  const config = window.TRILHA_SUPABASE_CONFIG;
+  bindAuthEvents();
+  if (!config?.url || !config?.publishableKey) {
+    updateAccountUi();
+    setSyncStatus("Salvo neste dispositivo");
+    return;
+  }
+
+  try {
+    await loadSupabaseSdk();
+    state.supabase = window.supabase.createClient(config.url, config.publishableKey);
+    state.supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return;
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthMode("recovery");
+        document.getElementById("account-dialog").showModal();
+      }
+      handleAuthSession(session).catch((error) => {
+        console.error("Não foi possível atualizar a sessão da conta.", error);
+        showNotice(`Não foi possível atualizar sua conta: ${error.message}`);
+      });
+    });
+    const { data, error } = await state.supabase.auth.getSession();
+    if (error) throw error;
+    await handleAuthSession(data.session);
+    updateAccountUi();
+  } catch (error) {
+    console.error("Não foi possível iniciar o Supabase.", error);
+    state.supabase = null;
+    updateAccountUi();
+    setSyncStatus("Falha ao conectar", "error");
+    showNotice(`Não foi possível iniciar login e sincronização: ${error.message}`);
+  }
+}
+
+function bindAuthEvents() {
+  document.getElementById("account-button").addEventListener("click", () => {
+    updateAccountUi();
+    document.getElementById("account-dialog").showModal();
+  });
+  document.getElementById("account-dialog-close").addEventListener("click", () => {
+    document.getElementById("account-dialog").close();
+  });
+  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+  });
+  document.getElementById("auth-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.supabase) return;
+    const email = document.getElementById("auth-email").value.trim();
+    const password = document.getElementById("auth-password").value;
+    const submit = document.getElementById("auth-submit");
+    submit.disabled = true;
+    document.getElementById("auth-message").hidden = true;
+    try {
+      if (state.authMode === "recovery") {
+        const { error } = await state.supabase.auth.updateUser({ password });
+        if (error) throw error;
+        setAuthMode("login");
+        showAuthMessage("auth-message", "Senha alterada. Agora você já pode entrar.");
+        return;
+      }
+      if (state.authMode === "signup") {
+        const { data, error } = await state.supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (!data.session) {
+          setAuthMode("login");
+          showAuthMessage("auth-message", "Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.");
+        } else {
+          document.getElementById("account-dialog").close();
+        }
+        return;
+      }
+      const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      await handleAuthSession(data.session);
+      document.getElementById("account-dialog").close();
+    } catch (error) {
+      console.error("A autenticação falhou.", error);
+      showAuthMessage("auth-message", error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  document.getElementById("auth-reset-password").addEventListener("click", async () => {
+    if (!state.supabase) return;
+    const emailInput = document.getElementById("auth-email");
+    if (!emailInput.reportValidity()) return;
+    try {
+      const { error } = await state.supabase.auth.resetPasswordForEmail(emailInput.value.trim(), {
+        redirectTo: window.location.href,
+      });
+      if (error) throw error;
+      showAuthMessage("auth-message", "Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha.");
+    } catch (error) {
+      console.error("Não foi possível solicitar a redefinição de senha.", error);
+      showAuthMessage("auth-message", `Não foi possível enviar o link: ${error.message}`);
+    }
+  });
+  document.getElementById("import-local-history").addEventListener("click", importLocalHistory);
+  document.getElementById("auth-sign-out").addEventListener("click", async () => {
+    const button = document.getElementById("auth-sign-out");
+    button.disabled = true;
+    try {
+      const saved = await saveCloudProgressNow();
+      state.clearLocalOnSignOut = saved;
+      const { error } = await state.supabase.auth.signOut();
+      if (error) throw error;
+      document.getElementById("account-dialog").close();
+    } catch (error) {
+      state.clearLocalOnSignOut = false;
+      console.error("Não foi possível sair da conta.", error);
+      showAuthMessage("auth-user-message", `Não foi possível sair da conta: ${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  setAuthMode("login");
+  updateAccountUi();
 }
 
 function escapeHtml(value) {
@@ -1680,7 +2084,9 @@ document.getElementById("mobile-scrim").addEventListener("click", () => {
   document.getElementById("mobile-scrim").classList.remove("visible");
 });
 document.getElementById("help-button").addEventListener("click", () => {
-  showNotice("Conteúdos importados dos arquivos Markdown locais. O progresso e os mapas são armazenados apenas neste navegador.");
+  showNotice(state.authUser && state.cloudReady
+    ? "Conteúdos são públicos. Seu histórico é sincronizado com sua conta Supabase e também mantido neste navegador enquanto você estiver conectado."
+    : "Conteúdos importados dos arquivos Markdown locais. Sem uma conta conectada, seu progresso fica armazenado apenas neste navegador.");
 });
 document.addEventListener("keydown", (event) => {
   if (state.activeTab !== "flashcards" || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
@@ -1701,6 +2107,7 @@ document.addEventListener("keydown", (event) => {
 
 async function start() {
   try {
+    await initializeAuth();
     const response = await fetch("data/manifest.json", { cache: "no-store" });
     if (!response.ok) throw new Error(`Índice de materiais não encontrado (${response.status}).`);
     state.manifest = await response.json();
