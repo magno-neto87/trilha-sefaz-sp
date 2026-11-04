@@ -50,6 +50,8 @@ const state = {
   authMode: "login",
   authLoading: false,
   authGeneration: 0,
+  authLoadPromise: null,
+  materialsLoadPromise: null,
   authError: null,
 };
 const view = document.getElementById("view");
@@ -254,6 +256,8 @@ async function handleAuthSession(session) {
     state.authLoaded = true;
     state.cloudReady = false;
     state.authLoading = false;
+    state.authLoadPromise = null;
+    state.materialsLoadPromise = null;
     state.pendingImportKey = null;
     state.authError = null;
     state.manifest = null;
@@ -267,7 +271,11 @@ async function handleAuthSession(session) {
     showAuthMessage("auth-message", "Esta conta não está autorizada a acessar o site.");
     return;
   }
-  if (nextUser && state.authUser?.id === nextUser.id && (state.cloudReady || state.authLoading)) return;
+  if (nextUser && state.authUser?.id === nextUser.id && state.authLoading) {
+    if (state.authLoadPromise) await state.authLoadPromise;
+    return;
+  }
+  if (nextUser && state.authUser?.id === nextUser.id && state.cloudReady) return;
   const generation = ++state.authGeneration;
   if (!nextUser) {
     if (state.authUser && state.clearLocalOnSignOut && state.cloudReady) {
@@ -277,6 +285,8 @@ async function handleAuthSession(session) {
     state.authLoaded = true;
     state.cloudReady = false;
     state.authLoading = false;
+    state.authLoadPromise = null;
+    state.materialsLoadPromise = null;
     state.clearLocalOnSignOut = false;
     state.pendingImportKey = null;
     state.authError = null;
@@ -297,8 +307,10 @@ async function handleAuthSession(session) {
   state.authLoading = true;
   updateAccountUi();
   setSyncStatus("Carregando seu histórico...");
+  const progressPromise = loadCloudProgress(nextUser, generation);
+  state.authLoadPromise = progressPromise;
   try {
-    await loadCloudProgress(nextUser, generation);
+    await progressPromise;
     if (state.authGeneration !== generation || state.authUser?.id !== nextUser.id) return;
     state.authLoaded = true;
     setSyncStatus(localStorage.getItem(state.pendingImportKey)
@@ -311,7 +323,10 @@ async function handleAuthSession(session) {
     state.authLoaded = true;
     setSyncStatus("Falha ao carregar histórico", "error");
   } finally {
-    if (state.authGeneration === generation) state.authLoading = false;
+    if (state.authGeneration === generation) {
+      state.authLoading = false;
+      state.authLoadPromise = null;
+    }
   }
   updateAccountUi();
 }
@@ -428,10 +443,14 @@ async function initializeAuth() {
         setAuthMode("recovery");
         document.getElementById("account-dialog").showModal();
       }
-      handleAuthSession(session).catch((error) => {
-        console.error("Não foi possível atualizar a sessão da conta.", error);
-        showNotice(`Não foi possível atualizar sua conta: ${error.message}`);
-      });
+      handleAuthSession(session)
+        .then(() => {
+          if (state.cloudReady && !state.manifest) return loadStudyMaterials();
+        })
+        .catch((error) => {
+          console.error("Não foi possível atualizar a sessão da conta.", error);
+          showNotice(`Não foi possível atualizar sua conta: ${error.message}`);
+        });
     });
     const { data, error } = await state.supabase.auth.getSession();
     if (error) throw error;
@@ -2165,17 +2184,27 @@ document.addEventListener("keydown", (event) => {
 
 async function loadStudyMaterials() {
   if (!state.supabase || !state.authUser || !state.cloudReady) return;
+  if (state.manifest) return;
+  if (state.materialsLoadPromise) return state.materialsLoadPromise;
   state.authError = null;
+  const loadPromise = (async () => {
+    try {
+      state.manifest = await loadPrivateJson("manifest.json");
+      state.subjectId = state.manifest.subjects[0]?.id || null;
+      buildNavigation();
+      updateAccountUi();
+      renderDashboard();
+    } catch (error) {
+      console.error("Não foi possível carregar os materiais privados.", error);
+      state.authError = `Não foi possível carregar os materiais privados: ${error.message}`;
+      updateAccountUi();
+    }
+  })();
+  state.materialsLoadPromise = loadPromise;
   try {
-    state.manifest = await loadPrivateJson("manifest.json");
-    state.subjectId = state.manifest.subjects[0]?.id || null;
-    buildNavigation();
-    updateAccountUi();
-    renderDashboard();
-  } catch (error) {
-    console.error(error);
-    state.authError = `Não foi possível carregar os materiais privados: ${error.message}`;
-    updateAccountUi();
+    await loadPromise;
+  } finally {
+    if (state.materialsLoadPromise === loadPromise) state.materialsLoadPromise = null;
   }
 }
 
