@@ -8,7 +8,7 @@
   <title>Trilha | Plataforma de estudos para concursos públicos</title>
   <link rel="stylesheet" href="styles.css?v=private-materials-1">
   <script src="supabase-config.js?v=private-materials-1" defer></script>
-  <script src="app.js?v=private-materials-1" defer></script>
+  <script src="app.js?v=owner-only-1" defer></script>
 </head>
 <body>
   <div class="auth-gate" id="auth-gate">
@@ -25,11 +25,7 @@
       <section id="auth-guest" hidden>
         <p class="eyebrow">ACESSO RESTRITO</p>
         <h1>Entre para acessar seus estudos</h1>
-        <p class="page-subtitle">Faça login para abrir os materiais e sincronizar seu histórico de estudos.</p>
-        <div class="auth-mode-switch" role="group" aria-label="Ação da conta">
-          <button class="button secondary selected" type="button" data-auth-mode="login">Entrar</button>
-          <button class="button secondary" type="button" data-auth-mode="signup">Criar conta</button>
-        </div>
+        <p class="page-subtitle">Acesso exclusivo à conta autorizada. Entre com o e-mail cadastrado pelo administrador.</p>
         <form id="auth-form">
           <label class="form-label" id="auth-email-label" for="auth-email">E-mail</label>
           <input class="form-control" id="auth-email" type="email" autocomplete="email" required>

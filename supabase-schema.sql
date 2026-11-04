@@ -14,22 +14,34 @@ create policy "Users can read their own progress"
   on public.user_progress
   for select
   to authenticated
-  using ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+    and user_id = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+  );
 
 drop policy if exists "Users can create their own progress" on public.user_progress;
 create policy "Users can create their own progress"
   on public.user_progress
   for insert
   to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+    and user_id = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+  );
 
 drop policy if exists "Users can update their own progress" on public.user_progress;
 create policy "Users can update their own progress"
   on public.user_progress
   for update
   to authenticated
-  using ((select auth.uid()) = user_id)
-  with check ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+    and user_id = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+  )
+  with check (
+    (select auth.uid()) = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+    and user_id = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+  );
 
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('study-materials', 'study-materials', false, 10485760)
@@ -40,4 +52,7 @@ create policy "Authenticated users can read study materials"
   on storage.objects
   for select
   to authenticated
-  using (bucket_id = 'study-materials');
+  using (
+    bucket_id = 'study-materials'
+    and (select auth.uid()) = 'c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313'
+  );

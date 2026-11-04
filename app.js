@@ -1,5 +1,7 @@
 "use strict";
 
+const AUTHORIZED_EMAIL = "magno.sneto@yahoo.com.br";
+const AUTHORIZED_USER_ID = "c8ec6d1a-b031-42f9-8ef5-98a6dfcc6313";
 const STORAGE_KEYS = {
   attempts: "trilha-attempts-v1",
   maps: "trilha-maps-v1",
@@ -150,6 +152,14 @@ function showAuthMessage(elementId, message) {
   element.hidden = false;
 }
 
+function isAuthorizedEmail(email) {
+  return String(email || "").trim().toLowerCase() === AUTHORIZED_EMAIL;
+}
+
+function isAuthorizedUser(user) {
+  return user?.id === AUTHORIZED_USER_ID;
+}
+
 function updateAccountUi() {
   const configured = Boolean(state.supabase);
   const hasUser = Boolean(state.authUser);
@@ -197,16 +207,10 @@ function setAuthMode(mode) {
   email.hidden = recovery;
   email.required = !recovery;
   document.getElementById("auth-password-label").textContent = recovery ? "Nova senha" : "Senha";
-  password.autocomplete = recovery || mode === "signup" ? "new-password" : "current-password";
-  password.minLength = recovery || mode === "signup" ? 8 : 0;
-  document.getElementById("auth-submit").textContent = recovery
-    ? "Salvar nova senha"
-    : mode === "signup" ? "Criar conta" : "Entrar";
+  password.autocomplete = recovery ? "new-password" : "current-password";
+  password.minLength = recovery ? 8 : 0;
+  document.getElementById("auth-submit").textContent = recovery ? "Salvar nova senha" : "Entrar";
   document.getElementById("auth-reset-password").hidden = mode !== "login";
-  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
-    button.hidden = recovery;
-    button.classList.toggle("selected", button.dataset.authMode === mode);
-  });
   document.getElementById("auth-message").hidden = true;
 }
 
@@ -244,6 +248,25 @@ async function loadCloudProgress(user, generation) {
 
 async function handleAuthSession(session) {
   const nextUser = session?.user || null;
+  if (nextUser && !isAuthorizedUser(nextUser)) {
+    ++state.authGeneration;
+    state.authUser = null;
+    state.authLoaded = true;
+    state.cloudReady = false;
+    state.authLoading = false;
+    state.pendingImportKey = null;
+    state.authError = null;
+    state.manifest = null;
+    state.subjectCache.clear();
+    state.questionIndexCache = null;
+    view.replaceChildren();
+    updateAccountUi();
+    const { error } = await state.supabase.auth.signOut();
+    if (error) throw error;
+    setSyncStatus("Acesso restrito");
+    showAuthMessage("auth-message", "Esta conta não está autorizada a acessar o site.");
+    return;
+  }
   if (nextUser && state.authUser?.id === nextUser.id && (state.cloudReady || state.authLoading)) return;
   const generation = ++state.authGeneration;
   if (!nextUser) {
@@ -433,13 +456,14 @@ function bindAuthEvents() {
     document.getElementById("account-dialog").close();
   });
   document.getElementById("auth-retry").addEventListener("click", () => window.location.reload());
-  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
-    button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
-  });
   document.getElementById("auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.supabase) return;
     const email = document.getElementById("auth-email").value.trim();
+    if (state.authMode !== "recovery" && !isAuthorizedEmail(email)) {
+      showAuthMessage("auth-message", "Este site está reservado à conta autorizada.");
+      return;
+    }
     const password = document.getElementById("auth-password").value;
     const submit = document.getElementById("auth-submit");
     submit.disabled = true;
@@ -453,18 +477,6 @@ function bindAuthEvents() {
         setAuthMode("login");
         await loadStudyMaterials();
         showAuthMessage("auth-message", "Senha alterada. Agora você já pode entrar.");
-        return;
-      }
-      if (state.authMode === "signup") {
-        const { data, error } = await state.supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        if (!data.session) {
-          setAuthMode("login");
-          showAuthMessage("auth-message", "Conta criada. Confira seu e-mail para confirmar o cadastro e depois entre.");
-        } else {
-          await handleAuthSession(data.session);
-          await loadStudyMaterials();
-        }
         return;
       }
       const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
@@ -485,6 +497,10 @@ function bindAuthEvents() {
     if (!state.supabase) return;
     const emailInput = document.getElementById("auth-email");
     if (!emailInput.reportValidity()) return;
+    if (!isAuthorizedEmail(emailInput.value)) {
+      showAuthMessage("auth-message", "A redefinição está disponível apenas para a conta autorizada.");
+      return;
+    }
     try {
       const { error } = await state.supabase.auth.resetPasswordForEmail(emailInput.value.trim(), {
         redirectTo: window.location.href,

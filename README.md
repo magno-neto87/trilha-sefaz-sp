@@ -29,7 +29,7 @@ O extrator percorre as subpastas imediatas como disciplinas e encontra arquivos 
 - **Mapas mentais:** mapa de tópicos construído a partir dos títulos Markdown e uma área para guardar links ou imagens.
 - **Flashcards:** cartões gerados a partir de títulos e trechos de seus materiais; navegação por botões ou teclado.
 - **Organização dos estudos:** rotina semanal, plano automático para o concurso com pesos editáveis por disciplina, calendário de metas/revisões/simulados, metas diárias, Pomodoro, lembretes de revisão espaçada de questões e conteúdos e diário de estudos. Sem login, as configurações ficam no armazenamento local do navegador; lembretes aparecem ao abrir a plataforma.
-- **Conta e histórico:** tela de entrada obrigatória, cadastro e redefinição de senha por e-mail e sincronização do progresso entre dispositivos usando Supabase.
+- **Conta e histórico:** tela de entrada obrigatória e exclusiva para o e-mail autorizado, redefinição de senha e sincronização do progresso entre dispositivos usando Supabase.
 
 ## Extração e formato
 
@@ -41,11 +41,12 @@ A identificação depende do formato dos arquivos de origem. Questões sem um ma
 
 O site é estático e não guarda senhas por conta própria. Para habilitar contas, configure um projeto Supabase:
 
-1. No **SQL Editor** do projeto Supabase, execute `supabase-schema.sql`. Além da tabela de progresso e das políticas por usuário, o script cria o bucket privado `study-materials` e permite que somente usuários autenticados leiam seus arquivos.
+1. No **SQL Editor** do projeto Supabase, execute `supabase-schema.sql`. Além da tabela de progresso e das políticas por usuário, o script cria o bucket privado `study-materials` e restringe leitura dos materiais e acesso ao progresso ao ID da conta autorizada.
 2. Em **Storage > study-materials**, carregue o conteúdo da pasta `data` gerada por `python extractor.py`: envie `manifest.json`, `question-index.json` e todos os JSONs da subpasta `subjects`, mantendo os caminhos indicados no `manifest.json`. O bucket precisa continuar **privado**. Os JSONs em `subjects` têm até cerca de 8 MB; o limite do bucket configurado pelo script é 10 MB por arquivo. Sempre que atualizar os materiais, gere `data` novamente e substitua os JSONs no bucket privado; não os publique no repositório.
 3. Configure em **Authentication > URL Configuration** a URL do site `https://magno-neto87.github.io/trilha-sefaz-sp/` e os redirecionamentos `https://magno-neto87.github.io/trilha-sefaz-sp/**` e `http://localhost:8000/**`.
 4. Confira `url` e `publishableKey` em `supabase-config.js`. A chave publishable é destinada ao navegador; **nunca** coloque `sb_secret_`, `service_role`, senha de banco ou outra chave secreta nesse arquivo.
-5. Publique a aplicação. A tela de entrada bloqueia o site até que a autenticação e o carregamento dos materiais privados terminem. Escolha **Criar conta** para cadastrar seu e-mail e senha; confirme o e-mail se o Supabase solicitar.
+5. Em **Authentication > Settings**, desative novos cadastros públicos. A conta autorizada já deve existir em **Authentication > Users**; se não existir, crie-a pelo painel e atualize o ID autorizado no `app.js` e no `supabase-schema.sql`. Não cadastre nem compartilhe a senha em código ou no repositório.
+6. Publique a aplicação. A tela de entrada bloqueia o site até que a autenticação e o carregamento dos materiais privados terminem. Outras contas são rejeitadas na aplicação e não conseguem ler os materiais nem o progresso pelas políticas do Supabase.
 
 As senhas são gerenciadas pelo Supabase e não são gravadas no histórico da aplicação. O botão **Esqueci minha senha** envia um link de redefinição. Tentativas, simulados e dados de organização continuam sincronizados por conta. Se houver progresso local neste navegador, ele fica preservado e pode ser mesclado pela opção **Importar histórico deste dispositivo** depois da entrada.
 
