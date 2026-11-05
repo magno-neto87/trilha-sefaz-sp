@@ -608,25 +608,18 @@ function inlineMarkdown(value) {
 
 function renderStudyHeading(level, text) {
   const cleanText = text.trim();
-  if (level === 1) {
-    const chapterMatch = cleanText.match(/^(\d+)(?:\s*[:.-]\s*|\s+)?(.*)$/);
-    if (chapterMatch) {
-      const number = chapterMatch[1];
-      const body = chapterMatch[2].trim() || "Capítulo";
-      return `<h1 class="chapter-heading"><span class="chapter-number">${number}</span><span class="chapter-text">${inlineMarkdown(body)}</span></h1>`;
+  const plainText = cleanText.replace(/[*_`]/g, "").trim();
+  const numberedHeading = plainText.match(/^(\d+(?:\.\d+)*)(?:\s*[:.)-]\s*|\s+)(.+)$/);
+  if (numberedHeading) {
+    const [, number, headingText] = numberedHeading;
+    const depth = number.split(".").length;
+    if (depth === 1) {
+      return `<h1 class="chapter-heading"><span class="chapter-number">${number}</span><span class="chapter-text">${inlineMarkdown(headingText)}</span></h1>`;
     }
-    return `<h1>${inlineMarkdown(cleanText)}</h1>`;
+    return `<h2 class="section-heading"><span class="section-badge">${number}</span><span class="section-text">${inlineMarkdown(headingText)}</span></h2>`;
   }
-  if (level === 2) {
-    const sectionMatch = cleanText.match(/^(\d+(?:\.\d+)*)(?:\s*[:.-]\s*|\s+)?(.*)$/);
-    if (sectionMatch) {
-      const badge = sectionMatch[1];
-      const body = sectionMatch[2].trim();
-      return `<h2 class="section-heading"><span class="section-badge">${badge}</span><span class="section-text">${inlineMarkdown(body || badge)}</span></h2>`;
-    }
-    return `<h2>${inlineMarkdown(cleanText)}</h2>`;
-  }
-  return `<h${level}>${inlineMarkdown(cleanText)}</h${level}>`;
+  const semanticLevel = Math.min(level, 3);
+  return `<h${semanticLevel}>${inlineMarkdown(cleanText)}</h${semanticLevel}>`;
 }
 
 function renderStudyCallout(text) {
@@ -646,11 +639,7 @@ function renderStudyCallout(text) {
 
 function renderMarkdown(markdown) {
   if (!markdown?.trim()) return '<p class="empty-state">Este material ainda não possui texto teórico separado.</p>';
-  const normalizedMarkdown = markdown
-    .replace(/\r\n?/g, "\n")
-    .replace(/<!--\s*Start of picture text\s*-->\s*Usuários da contabilidade[\s\S]*?(?=\n\s*(?:#{1,6}\s+|$))/i, "")
-    .replace(/<!--\s*Start of picture text\s*-->\s*Usuários da contabilidade[\s\S]*?$/i, "")
-    .replace(/Usuários da contabilidade\s*Investidores atuais[\s\S]*?(?=\n\s*(?:#{1,6}\s+|$))/i, "");
+  const normalizedMarkdown = markdown.replace(/\r\n?/g, "\n");
   const lines = normalizedMarkdown.split("\n");
   const html = [];
   let paragraph = [];
@@ -659,6 +648,26 @@ function renderMarkdown(markdown) {
   const flushParagraph = () => {
     if (!paragraph.length) return;
     const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
+    const pictureText = text.match(/^<!--\s*Start of picture text\s*-->\s*(.+)$/i);
+    if (pictureText && /Usuários da contabilidade/i.test(pictureText[1])) {
+      html.push(renderAccountingUsersDiagram());
+      paragraph = [];
+      return;
+    }
+    const numberedTitle = text.match(/^\*{1,2}(\d+(?:\.\d+)*)(?:\s*[:.)-]\s*|\s+)(.+?)\*{1,2}\s*$/);
+    if (numberedTitle) {
+      const number = numberedTitle[1];
+      const headingLevel = number.includes(".") ? 2 : 1;
+      html.push(renderStudyHeading(headingLevel, `${number} ${numberedTitle[2]}`));
+      paragraph = [];
+      return;
+    }
+    const pictureRemainder = text.match(/^Usuários da contabilidade\s+Investidores atuais[\s\S]*$/i);
+    if (pictureRemainder) {
+      html.push(renderAccountingUsersDiagram());
+      paragraph = [];
+      return;
+    }
     const callout = renderStudyCallout(text);
     if (callout) {
       html.push(callout);
@@ -710,26 +719,25 @@ function renderMarkdown(markdown) {
     }
   }
   flushParagraph(); flushList(); flushTable();
-  const withUsersDiagram = html.join("\n").replace(/Usuários da contabilidade/gi, "");
-  if (withUsersDiagram.includes("Investidores atuais") && !withUsersDiagram.includes("accounting-users-structure")) {
-    const usersDiagram = `
-      <div class="accounting-users-structure">
-        <div class="users-header">Usuários da contabilidade</div>
-        <div class="user-connector"><span class="connector-line"></span><div class="user-group">Usuários externos</div><span class="connector-line"></span></div>
-        <div class="users-grid">
-          <div class="user-pill">Investidores atuais</div>
-          <div class="user-pill">Investidores potenciais</div>
-          <div class="user-pill">Empregados</div>
-          <div class="user-pill">Credores</div>
-          <div class="user-pill">Fornecedores</div>
-          <div class="user-pill">Clientes</div>
-          <div class="user-pill">Governos e agências</div>
-          <div class="user-pill">Público</div>
-        </div>
-      </div>`;
-    return html.join("\n").replace(/(Investidores atuais.*?)(?=\n|$)/is, usersDiagram);
-  }
-  return withUsersDiagram;
+  return html.join("\n");
+}
+
+function renderAccountingUsersDiagram() {
+  const users = [
+    "Investidores atuais",
+    "Investidores potenciais",
+    "Empregados",
+    "Credores",
+    "Fornecedores",
+    "Clientes",
+    "Governos e agências",
+    "Público",
+  ];
+  return `<div class="accounting-users-structure">
+    <div class="users-header">Usuários da contabilidade</div>
+    <div class="user-connector"><span class="connector-line"></span><div class="user-group">Usuários externos</div><span class="connector-line"></span></div>
+    <div class="users-grid">${users.map((user) => `<div class="user-pill">${user}</div>`).join("")}</div>
+  </div>`;
 }
 
 function getAttempts() {
