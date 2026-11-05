@@ -30,6 +30,7 @@ O extrator percorre as subpastas imediatas como disciplinas e encontra arquivos 
 - **Flashcards:** cartões gerados a partir de títulos e trechos de seus materiais; navegação por botões ou teclado.
 - **Organização dos estudos:** rotina semanal, plano automático para o concurso com pesos editáveis por disciplina, calendário de metas/revisões/simulados, metas diárias, Pomodoro, lembretes de revisão espaçada de questões e conteúdos e diário de estudos. Sem login, as configurações ficam no armazenamento local do navegador; lembretes aparecem ao abrir a plataforma.
 - **Conta e histórico:** tela de entrada obrigatória e exclusiva para o e-mail autorizado, redefinição de senha e sincronização do progresso entre dispositivos usando Supabase.
+- **Documentação técnica:** `documentacao_projeto.ipynb` explica a arquitetura, o pipeline de materiais, autenticação/privacidade, operação e testes; as células de validação não exibem materiais didáticos.
 
 ## Extração e formato
 
