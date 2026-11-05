@@ -78,6 +78,21 @@ function writeStorage(key, value) {
   }
 }
 
+function sanitizeAttemptHistory(attempts) {
+  if (!Array.isArray(attempts)) return [];
+  const validQuestionIds = state.questionIndexCache ? new Set(state.questionIndexCache.keys()) : null;
+  const filtered = attempts.filter((attempt) => {
+    if (!attempt || typeof attempt !== "object") return false;
+    if (typeof attempt.questionId !== "string" || !attempt.questionId.trim()) return false;
+    if (validQuestionIds && !validQuestionIds.has(attempt.questionId)) return false;
+    return true;
+  });
+  if (filtered.length !== attempts.length) {
+    writeStorage(STORAGE_KEYS.attempts, filtered);
+  }
+  return filtered;
+}
+
 function showNotice(message) {
   notice.textContent = message;
   notice.hidden = false;
@@ -591,15 +606,65 @@ function inlineMarkdown(value) {
   return text;
 }
 
+function renderStudyHeading(level, text) {
+  const cleanText = text.trim();
+  if (level === 1) {
+    const chapterMatch = cleanText.match(/^(\d+)(?:\s*[:.-]\s*|\s+)?(.*)$/);
+    if (chapterMatch) {
+      const number = chapterMatch[1];
+      const body = chapterMatch[2].trim() || "Capítulo";
+      return `<h1 class="chapter-heading"><span class="chapter-number">${number}</span><span class="chapter-text">${inlineMarkdown(body)}</span></h1>`;
+    }
+    return `<h1>${inlineMarkdown(cleanText)}</h1>`;
+  }
+  if (level === 2) {
+    const sectionMatch = cleanText.match(/^(\d+(?:\.\d+)*)(?:\s*[:.-]\s*|\s+)?(.*)$/);
+    if (sectionMatch) {
+      const badge = sectionMatch[1];
+      const body = sectionMatch[2].trim();
+      return `<h2 class="section-heading"><span class="section-badge">${badge}</span><span class="section-text">${inlineMarkdown(body || badge)}</span></h2>`;
+    }
+    return `<h2>${inlineMarkdown(cleanText)}</h2>`;
+  }
+  return `<h${level}>${inlineMarkdown(cleanText)}</h${level}>`;
+}
+
+function renderStudyCallout(text) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const lower = normalized.toLowerCase();
+  if (/fun[cç][aã]o\s+da\s+contabilidade|objetivo\s+da\s+contabilidade/i.test(lower)) {
+    return `<div class="content-callout concept"><span class="callout-label">Conceito-chave</span><div class="callout-text">${inlineMarkdown(normalized)}</div></div>`;
+  }
+  if (/credibilidade.*demonstra[cç][aã]o|demonstra[cç][aã]o.*credibilidade|credibilidade.*cont[aá]bil/i.test(lower)) {
+    return `<div class="content-callout attention"><span class="callout-label">Atenção</span><div class="callout-text">${inlineMarkdown(normalized)}</div></div>`;
+  }
+  if (/princ[ií]pios\s+cont[aá]beis|princ[ií]pios\s+da\s+contabilidade/i.test(lower)) {
+    return `<div class="content-callout summary"><span class="callout-label">Resumindo</span><div class="callout-text">${inlineMarkdown(normalized)}</div></div>`;
+  }
+  return null;
+}
+
 function renderMarkdown(markdown) {
   if (!markdown?.trim()) return '<p class="empty-state">Este material ainda não possui texto teórico separado.</p>';
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const normalizedMarkdown = markdown
+    .replace(/\r\n?/g, "\n")
+    .replace(/<!--\s*Start of picture text\s*-->\s*Usuários da contabilidade[\s\S]*?(?=\n\s*(?:#{1,6}\s+|$))/i, "")
+    .replace(/<!--\s*Start of picture text\s*-->\s*Usuários da contabilidade[\s\S]*?$/i, "")
+    .replace(/Usuários da contabilidade\s*Investidores atuais[\s\S]*?(?=\n\s*(?:#{1,6}\s+|$))/i, "");
+  const lines = normalizedMarkdown.split("\n");
   const html = [];
   let paragraph = [];
   let listType = "";
   let tableRows = [];
   const flushParagraph = () => {
-    if (paragraph.length) html.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    if (!paragraph.length) return;
+    const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
+    const callout = renderStudyCallout(text);
+    if (callout) {
+      html.push(callout);
+    } else {
+      html.push(`<p>${inlineMarkdown(text)}</p>`);
+    }
     paragraph = [];
   };
   const flushList = () => {
@@ -629,7 +694,7 @@ function renderMarkdown(markdown) {
     if (heading) {
       flushParagraph(); flushList();
       const level = Math.min(heading[1].length, 4);
-      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      html.push(renderStudyHeading(level, heading[2]));
     } else if (list) {
       flushParagraph();
       const nextType = /^\d/.test(list[1]) ? "ol" : "ul";
@@ -645,12 +710,31 @@ function renderMarkdown(markdown) {
     }
   }
   flushParagraph(); flushList(); flushTable();
-  return html.join("\n");
+  const withUsersDiagram = html.join("\n").replace(/Usuários da contabilidade/gi, "");
+  if (withUsersDiagram.includes("Investidores atuais") && !withUsersDiagram.includes("accounting-users-structure")) {
+    const usersDiagram = `
+      <div class="accounting-users-structure">
+        <div class="users-header">Usuários da contabilidade</div>
+        <div class="user-connector"><span class="connector-line"></span><div class="user-group">Usuários externos</div><span class="connector-line"></span></div>
+        <div class="users-grid">
+          <div class="user-pill">Investidores atuais</div>
+          <div class="user-pill">Investidores potenciais</div>
+          <div class="user-pill">Empregados</div>
+          <div class="user-pill">Credores</div>
+          <div class="user-pill">Fornecedores</div>
+          <div class="user-pill">Clientes</div>
+          <div class="user-pill">Governos e agências</div>
+          <div class="user-pill">Público</div>
+        </div>
+      </div>`;
+    return html.join("\n").replace(/(Investidores atuais.*?)(?=\n|$)/is, usersDiagram);
+  }
+  return withUsersDiagram;
 }
 
 function getAttempts() {
   const attempts = readStorage(STORAGE_KEYS.attempts, []);
-  return Array.isArray(attempts) ? attempts : [];
+  return sanitizeAttemptHistory(attempts);
 }
 
 async function loadQuestionIndex() {
@@ -659,6 +743,8 @@ async function loadQuestionIndex() {
   try {
     const data = await loadPrivateJson(file);
     state.questionIndexCache = new Map((data.questions || []).map((question) => [question.id, question]));
+    const attempts = readStorage(STORAGE_KEYS.attempts, []);
+    sanitizeAttemptHistory(attempts);
   } catch (error) {
     console.error(error);
     state.questionIndexCache = new Map();

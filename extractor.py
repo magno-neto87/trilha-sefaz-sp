@@ -91,6 +91,14 @@ def normalize_answer(value: str) -> str | None:
     return matches[-1].group(1).upper() if matches else None
 
 
+def is_question_candidate(block: str) -> bool:
+    block = normalize_question_layout(clean_pdf_artifacts(block))
+    options = parse_options(block)
+    if len(options) < 2:
+        return False
+    return bool(re.search(r"(?im)^\s*(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-]", block))
+
+
 def parse_options(block: str) -> list[dict[str, str]]:
     boundaries = [match.start() for match in (SOLUTION_MARKER.search(block),) if match]
     answer_matches = list(ANSWER_MARKER.finditer(block))
@@ -158,7 +166,7 @@ def clean_pdf_artifacts(block: str) -> str:
     for line in block.splitlines():
         line = PDF_BRANDING.sub("", line).strip()
         plain = re.sub(r"[*_`]", "", line).strip()
-        if PAGE_COUNTER.fullmatch(plain) or EXAM_SOURCE.fullmatch(plain):
+        if (PAGE_COUNTER.fullmatch(plain) or (EXAM_SOURCE.fullmatch(plain) and not QUESTION_MARKER.search(plain))):
             while cleaned and not cleaned[-1].strip():
                 cleaned.pop()
             skip_next_blank = True
@@ -247,13 +255,16 @@ def question_from_block(
         stem = stem[:option_match.start()]
     stem = re.sub(QUESTION_MARKER, "", stem, count=1).strip()
     stem = re.sub(r"(?m)^\s*(?:[-*_]\s*){3,}$", "", stem).strip()
+    answer = normalize_answer(block)
+    if answer and options and answer not in {option["key"] for option in options}:
+        answer = None
     key = f"{relative_path}:{occurrence}:{question_number}"
     return {
         "id": stable_id(key),
         "number": question_number,
         "statement": stem,
         "options": options,
-        "answer": normalize_answer(block),
+        "answer": answer,
         "solution": solution,
         "source": relative_path,
         "topic": topic,
@@ -267,12 +278,20 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
         return clean_study_metadata(remove_page_counters(markdown)), []
 
     starts: list[int] = []
-    for match in matches:
+    for index, match in enumerate(matches):
         start = markdown.rfind("\n", 0, match.start()) + 1
-        if not starts or start > starts[-1]:
-            starts.append(start)
+        if starts and start <= starts[-1]:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
+        candidate = markdown[start:end]
+        if not is_question_candidate(candidate):
+            continue
+        starts.append(start)
 
     questions: list[dict[str, Any]] = []
+    if not starts:
+        return clean_study_metadata(remove_page_counters(markdown)), []
+
     theory_parts = [markdown[:starts[0]]]
     headings = list(HEADING.finditer(markdown))
     heading_index = 0
@@ -303,6 +322,14 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
         if not block:
             theory_parts.append(theory_tail)
             continue
+        if index > 0:
+            previous_start = starts[index - 1]
+            previous_segment = markdown[previous_start:start]
+            previous_solution = SOLUTION_MARKER.search(previous_segment)
+            if previous_solution:
+                between = markdown[previous_start + previous_solution.start():start]
+                if len(between.strip()) < 400 and not re.search(r"\n\s*\n", between):
+                    continue
         bank_match = BANK_MARKER.search(block)
         parsed = question_from_block(
             block,

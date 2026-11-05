@@ -297,6 +297,35 @@ Este conceito explica como os elementos principais se relacionam e orientam o es
         self.assertEqual(len(cards), 1)
         self.assertEqual(cards[0]["front"], "Conceito fundamental")
 
+    def test_skips_question_blocks_without_multiple_choice_options(self):
+        source = """## Conteúdo
+Questão 987654
+Texto longo sem alternativas.
+Gabarito: A
+## Próximo tópico
+Texto final.
+"""
+        theory, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(questions, [])
+        self.assertIn("Texto final.", theory)
+
+    def test_ignores_question_markers_in_solution_text(self):
+        source = """2021 FCC Questão 1001
+A) Alternativa correta
+B) Alternativa errada
+Gabarito: A
+#### Solução:
+Explicação da primeira questão.
+Questão 2002
+C) Alternativa incorreta
+D) Alternativa correta
+Gabarito: D
+"""
+        theory, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]["number"], "Questão 1001")
+        self.assertEqual(questions[0]["answer"], "A")
+
 
 if __name__ == "__main__":
     unittest.main()
