@@ -6,9 +6,19 @@
   <meta name="theme-color" content="#f5f7fb">
   <meta name="description" content="Seu espaço pessoal de estudos para concursos públicos.">
   <title>Trilha | Plataforma de estudos para concursos públicos</title>
-  <link rel="stylesheet" href="styles.css?v=study-enhancements-1">
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem("trilha-theme-mode");
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var theme = saved === "dark" || saved === "light" ? saved : (prefersDark ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch(e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=study-enhancements-2">
   <script src="supabase-config.js?v=private-materials-1" defer></script>
-  <script src="app.js?v=study-enhancements-1" defer></script>
+  <script src="app.js?v=study-enhancements-2" defer></script>
 </head>
 <body>
   <div class="auth-gate" id="auth-gate">
@@ -63,8 +73,10 @@
       </div>
       <div class="sidebar-bottom">
         <div class="avatar">MS</div>
-        <div><strong id="account-name">Meu espaço</strong><small id="account-storage-label">Progresso neste dispositivo</small></div>
-        <span class="online-dot" id="account-storage-indicator" title="Dados salvos localmente"></span>
+        <div class="sidebar-user-details"><strong id="account-name">Meu espaço</strong><small id="account-storage-label">Progresso neste dispositivo</small></div>
+        <button class="sidebar-theme-btn" id="sidebar-theme-toggle" type="button" title="Alternar modo escuro" aria-label="Alternar modo escuro">
+          <span class="sidebar-theme-icon">🌙</span>
+        </button>
       </div>
     </aside>
 
@@ -74,6 +86,9 @@
         <div class="breadcrumbs"><span>SEFAZ-SP</span><span class="crumb-sep">/</span><strong id="breadcrumb">Visão geral</strong></div>
         <div class="top-actions">
           <span class="local-status" id="sync-status" aria-live="polite"><span class="online-dot" id="sync-indicator"></span><span id="sync-label">Salvo neste dispositivo</span></span>
+          <button class="icon-button theme-toggle-btn" id="theme-toggle" aria-label="Alternar modo escuro" title="Alternar modo escuro">
+            <span class="theme-icon" id="theme-icon">🌙</span>
+          </button>
           <button class="button secondary account-button" id="account-button" type="button">Entrar</button>
           <button class="icon-button" id="help-button" aria-label="Sobre os dados" title="Sobre os dados">i</button>
         </div>

@@ -689,8 +689,14 @@ function normalizeContentMarkdown(markdown) {
     const numberedHeader = trimmed.match(/^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$/);
     const markupPlaceholder = /(?:<|&lt;)\/?(?:mark|u)(?:\s|>|&gt;)/i.test(trimmed)
       && !trimmed.replace(/<[^>]*>|&lt;[^&]*?&gt;/gi, "").replace(/[#*_~`\s]/g, "");
+    // Detect and strip Table of Contents / Sumário / Índice lines with dots or page numbers
+    const isTocHeader = /^(?:#+\s*)?(?:\*{1,2}|_{1,2})?\s*(?:sum[aá]rio|[ií]ndice|tabela\s+de\s+conte[uú]dos?)\b(?:\*{1,2}|_{1,2})?\s*[:：.]?$/i.test(trimmed);
+    const isDottedTocLine = /(?:\.{3,}|…{2,})\s*(?:\*{1,2})?\s*\d+\s*(?:\*{1,2})?\s*$/i.test(trimmed)
+      || /^\s*(?:\*{1,2})?\s*\d+(?:\.\d+)+\s*(?:\*{1,2})?.*(?:\.{3,}|…{2,})/i.test(trimmed);
     return !(
-      /^(?:>|&gt;)?\s*(?:\d+(?:\.\d+)*\s+)?(?:estratégia\s*concursos|estratégiaconcursos)\b/i.test(trimmed)
+      isTocHeader
+      || isDottedTocLine
+      || /^(?:>|&gt;)?\s*(?:\d+(?:\.\d+)*\s+)?(?:estratégia\s*concursos|estratégiaconcursos)\b/i.test(trimmed)
       || /^[:：]?\s*<sup>Estrat[eé]gia<\/sup>\s*Concursos$/i.test(trimmed)
       || /^\d{1,3}\s*\/\s*\d{1,3}$/.test(plain)
       || markupPlaceholder
@@ -774,17 +780,21 @@ function renderMarkdownTable(tableRows) {
   if (parsedRows.length === 1) {
     const singleToc = parseContentsEntry(parsedRows[0]);
     if (singleToc) {
-      return `<nav class="content-toc" aria-label="Sumário"><ul><li><span class="toc-number">${inlineMarkdown(singleToc.number)}</span><span class="toc-title">${inlineMarkdown(singleToc.title)}</span>${singleToc.page ? `<span class="toc-page">${inlineMarkdown(singleToc.page)}</span>` : ""}</li></ul></nav>`;
+      // Omit table of contents entry
+      return "";
     }
     const text = parsedRows[0].filter(Boolean).join(" ").replace(/^[|\s-]+|[|\s-]+$/g, "");
     return `<p class="table-continuation">${inlineMarkdown(text)}</p>`;
   }
   const tocEntries = parsedRows.map(parseContentsEntry);
   const matchingEntries = tocEntries.filter(Boolean);
-  if (matchingEntries.length >= 2 && matchingEntries.length / parsedRows.length >= 0.5) {
-    return `<nav class="content-toc" aria-label="Sumário"><ul>${matchingEntries.map((entry) => (
-      `<li><span class="toc-number">${inlineMarkdown(entry.number)}</span><span class="toc-title">${inlineMarkdown(entry.title)}</span>${entry.page ? `<span class="toc-page">${inlineMarkdown(entry.page)}</span>` : ""}</li>`
-    )).join("")}</ul></nav>`;
+  const hasTocDottedPattern = parsedRows.some((row) => {
+    const str = row.join(" ");
+    return /(?:\.{3,}|…{2,})\s*(?:\*{1,2})?\s*\d+/i.test(str) || /^\s*(?:\*{1,2})?\d+(\.\d+)+\s*\)?.*(?:\d{1,4}\b|\.{3,})/i.test(str);
+  });
+  if (matchingEntries.length >= 1 && (matchingEntries.length >= 2 || matchingEntries.length / parsedRows.length >= 0.4 || hasTocDottedPattern)) {
+    // Omit table of contents table completely per user request
+    return "";
   }
   const header = parsedRows[0];
   const body = parsedRows.slice(1);
@@ -3466,8 +3476,57 @@ async function loadStudyMaterials() {
   }
 }
 
+const THEME_STORAGE_KEY = "trilha-theme-mode";
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const initialTheme = saved === "dark" || saved === "light" ? saved : (prefersDark ? "dark" : "light");
+  applyTheme(initialTheme);
+
+  const toggleHandler = () => {
+    const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    const next = current === "dark" ? "light" : "dark";
+    applyTheme(next);
+  };
+
+  document.getElementById("theme-toggle")?.addEventListener("click", toggleHandler);
+  document.getElementById("sidebar-theme-toggle")?.addEventListener("click", toggleHandler);
+
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if (!localStorage.getItem(THEME_STORAGE_KEY)) {
+        applyTheme(e.matches ? "dark" : "light");
+      }
+    });
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  const icon = theme === "dark" ? "☀️" : "🌙";
+  const title = theme === "dark" ? "Mudar para modo claro" : "Mudar para modo escuro";
+  const themeIcon = document.getElementById("theme-icon");
+  if (themeIcon) themeIcon.textContent = icon;
+  const sidebarIcon = document.querySelector(".sidebar-theme-icon");
+  if (sidebarIcon) sidebarIcon.textContent = icon;
+  const topBtn = document.getElementById("theme-toggle");
+  if (topBtn) topBtn.title = title;
+  const sideBtn = document.getElementById("sidebar-theme-toggle");
+  if (sideBtn) sideBtn.title = title;
+
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute("content", theme === "dark" ? "#0b0f19" : "#f5f8ff");
+  }
+}
+
+initTheme();
+
 async function start() {
   try {
+    initTheme();
     await initializeAuth();
     await loadStudyMaterials();
     updateAccountUi();
