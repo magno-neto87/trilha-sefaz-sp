@@ -6,6 +6,7 @@ from pathlib import Path
 from extractor import (
     deduplicate_subject_questions,
     clean_promotional_content,
+    clean_content_artifacts,
     extract,
     extract_questions,
     generate_flashcards,
@@ -261,6 +262,46 @@ O conceito contábil deve permanecer no material de estudo.
         self.assertNotIn("concursos.estrategia.com/ldi", cleaned)
         self.assertNotIn("parte-final-do-link", cleaned)
         self.assertIn("O conteúdo teórico continua aqui.", cleaned)
+
+    def test_removes_repeated_pdf_headers_but_preserves_unique_headings(self):
+        source = """EstratégiaConcursos **1. Título de cabeçalho repetido**
+**1. Título de cabeçalho repetido**
+**1. Título de cabeçalho repetido**
+**1 Capítulo verdadeiro**
+**2. Seção legítima**
+**Prof. Equipe Direito Tributário**
+**2/186**
+Texto didático preservado.
+"""
+        cleaned = clean_content_artifacts(source)
+        self.assertNotIn("EstratégiaConcursos", cleaned)
+        self.assertNotIn("Título de cabeçalho repetido", cleaned)
+        self.assertNotIn("Prof. Equipe", cleaned)
+        self.assertNotIn("2/186", cleaned)
+        self.assertIn("**1 Capítulo verdadeiro**", cleaned)
+        self.assertIn("**2. Seção legítima**", cleaned)
+        self.assertIn("Texto didático preservado.", cleaned)
+
+    def test_removes_picture_markers_and_empty_markup_placeholders(self):
+        source = """<!-- Start of picture text -->
+Instituição de tributos com exceções.
+<!-- End of picture text -->
+# ~~<u><mark>_</mark></u>~~
+Texto com <sup>nota</sup> e quebra<br>mantidos.
+"""
+        cleaned = clean_content_artifacts(source)
+        self.assertNotIn("<!--", cleaned)
+        self.assertNotIn("<sup>", cleaned)
+        self.assertNotIn("<br>", cleaned)
+        self.assertNotIn("<mark>", cleaned)
+        self.assertNotIn("~~", cleaned)
+        self.assertIn("Instituição de tributos com exceções.", cleaned)
+        self.assertIn("Texto com nota e quebra mantidos.", cleaned)
+        extracted, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(questions, [])
+        self.assertNotIn("<!--", extracted)
+        self.assertNotIn("<sup>", extracted)
+        self.assertIn("Instituição de tributos com exceções.", extracted)
 
     def test_removes_platform_url_split_across_ocr_table_lines(self):
         cleaned = clean_promotional_content(

@@ -24,7 +24,7 @@ O extrator percorre as subpastas imediatas como disciplinas e encontra arquivos 
 ## O que está incluído
 
 - **Visão geral:** taxa geral e desempenho por disciplina, assunto e banca, evolução semanal, comparação entre semanas, tempo médio por questão, mapa de calor e previsão suavizada baseada no histórico. O painel identifica quando ainda não há amostra suficiente; a previsão é uma estimativa, não uma garantia.
-- **Conteúdos:** seleção de disciplina dentro da aba, busca e navegação por material, marcação persistente de conteúdos estudados, renderização Markdown e controles para reduzir ou ocultar a lista de materiais. A extração remove mensagens promocionais, links de plataforma, cabeçalhos e créditos de professores e datas de atualização dos documentos.
+- **Conteúdos:** seleção de disciplina dentro da aba, busca e navegação por material, marcação persistente de conteúdos estudados, leitura em coluna central com tipografia responsiva, títulos hierárquicos, sumários e tabelas legíveis, além de controles para reduzir ou ocultar a lista de materiais.
 - **Questões:** treino por disciplina, embaralhamento aleatório das questões com gabarito e alternativas, eliminação de alternativas com tachado e simulados aleatórios configuráveis por disciplina ou pelo banco completo. No modo aleatório, cada resposta é registrada como nova tentativa; os simulados mostram gabarito e solução apenas depois da entrega.
 - **Mapas mentais:** mapa de tópicos construído a partir dos títulos Markdown e uma área para guardar links ou imagens.
 - **Flashcards:** cartões gerados a partir de títulos e trechos de seus materiais; navegação por botões ou teclado.
@@ -33,7 +33,7 @@ O extrator percorre as subpastas imediatas como disciplinas e encontra arquivos 
 
 ## Extração e formato
 
-O extrator separa blocos de questões identificados por marcadores numerados (por exemplo, `**Questão** 4001081845` ou `Questão 12`), identifica alternativas A–E em linhas separadas ou na mesma linha (inclusive com quebras HTML), procura respostas indicadas por “Gabarito” ou “Resposta” e conserva o texto de solução/comentário. Também remove cabeçalhos e contadores de página comuns em PDFs e mantém apenas a ocorrência mais completa de questões repetidas com o mesmo identificador externo em cada disciplina. A parte teórica mantém o Markdown fora desses blocos.
+O extrator separa blocos de questões identificados por marcadores numerados (por exemplo, `**Questão** 4001081845` ou `Questão 12`), identifica alternativas A–E em linhas separadas ou na mesma linha (inclusive com quebras HTML), procura respostas indicadas por “Gabarito” ou “Resposta” e conserva o texto de solução/comentário. Também remove cabeçalhos repetidos e contadores de página comuns em PDFs, marcadores de conversão de imagem e tags de apresentação residuais, e mantém apenas a ocorrência mais completa de questões repetidas com o mesmo identificador externo em cada disciplina. A parte teórica mantém o Markdown fora desses blocos.
 
 A identificação depende do formato dos arquivos de origem. Questões sem um marcador numérico ou com gabarito apresentado em formato incomum podem permanecer no texto teórico ou aparecer sem resposta identificada; confira o material original antes de usar um gabarito. Os flashcards são sugestões automáticas baseadas nos títulos e primeiros parágrafos, e devem ser revisados como ferramenta de estudo.
 

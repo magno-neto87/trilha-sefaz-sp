@@ -433,6 +433,29 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
 .material-study-toggle input { accent-color: #22966f; height: 15px; margin: 0; width: 15px; }
 .material-study-toggle.completed { background: var(--green-soft); border-color: #b5e3d0; color: #21805e; }
 .markdown-body {
+  color: #3e4c63;
+  font-size: 12px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4 {
+  color: #24334d;
+  letter-spacing: -.3px;
+  margin: 25px 0 10px;
+}
+.markdown-body h1 { font-size: 21px; }
+.markdown-body h2 { border-bottom: 1px solid #edf0f5; font-size: 17px; padding-bottom: 8px; }
+.markdown-body h3 { font-size: 14px; }
+.markdown-body p { margin: 0 0 13px; }
+.markdown-body ul,.markdown-body ol { padding-left: 22px; }
+.markdown-body li { margin: 5px 0; }
+.markdown-body blockquote { border-left: 3px solid #b6c8ed; color: #687891; margin: 14px 0; padding: 5px 14px; }
+.markdown-body table { border-collapse: collapse; display: block; font-size: 10px; margin: 14px 0; max-width: 100%; overflow-x: auto; width: max-content; }
+.markdown-body th,.markdown-body td { border: 1px solid #e6ebf2; padding: 7px 9px; text-align: left; }
+.markdown-body th { background: #f5f7fb; color: #34425a; }
+.markdown-body code { background: #f1f4f8; border-radius: 3px; font-family: Consolas,monospace; padding: 2px 4px; }
+.markdown-body a { color: var(--blue); }
+.reader .markdown-body {
   background: #ffffff;
   color: #1f2937;
   font-family: "Nunito Sans", "Segoe UI", sans-serif;
@@ -440,26 +463,27 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   line-height: 1.75;
   margin: 0 auto;
   max-width: 740px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   padding: 72px 0 96px;
   width: 100%;
 }
-.markdown-body > *:first-child { margin-top: 0; }
-.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4 {
+.reader .markdown-body > *:first-child { margin-top: 0; }
+.reader .markdown-body h1,.reader .markdown-body h2,.reader .markdown-body h3,.reader .markdown-body h4 {
   color: #0f1f4d;
   font-family: "Poppins", "Segoe UI", sans-serif;
   letter-spacing: -0.02em;
   line-height: 1.2;
-  margin: 56px 0 22px;
+  margin: 40px 0 18px;
 }
-.markdown-body h1 {
+.reader .markdown-body h1 {
   align-items: center;
   display: flex;
-  gap: 18px;
-  font-size: 32px;
+  gap: 14px;
+  font-size: 24px;
   font-weight: 700;
+  min-width: 0;
 }
-.markdown-body h1 .chapter-number {
+.reader .markdown-body h1 .chapter-number {
   align-items: center;
   background: #1d4ed8;
   border-radius: 50%;
@@ -467,20 +491,23 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   display: inline-flex;
   flex-shrink: 0;
   font-family: "Poppins", "Segoe UI", sans-serif;
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
-  height: 64px;
+  height: 48px;
   justify-content: center;
-  width: 64px;
+  width: 48px;
 }
-.markdown-body h2 {
+.reader .markdown-body h1 .chapter-text,
+.reader .markdown-body h2 .section-text { min-width: 0; }
+.reader .markdown-body h2 {
   align-items: center;
   display: flex;
-  gap: 12px;
-  font-size: 26px;
+  gap: 10px;
+  font-size: 20px;
   font-weight: 600;
+  min-width: 0;
 }
-.markdown-body h2 .section-badge {
+.reader .markdown-body h2 .section-badge {
   align-items: center;
   background: #dbeafe;
   border: 1px solid rgba(30, 58, 138, 0.08);
@@ -489,41 +516,95 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   display: inline-flex;
   flex-shrink: 0;
   font-family: "Poppins", "Segoe UI", sans-serif;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   justify-content: center;
-  min-width: 56px;
-  padding: 8px 12px;
+  min-width: 48px;
+  padding: 6px 10px;
 }
-.markdown-body h3 {
+.reader .markdown-body h3 {
   color: #1d4ed8;
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
-  margin: 28px 0 16px;
+  margin: 24px 0 14px;
 }
-.markdown-body p {
+.reader .markdown-body p {
+  hyphens: auto;
   margin: 0 0 24px;
+  text-align: justify;
+  word-break: normal;
 }
-.markdown-body p + p { margin-top: 24px; }
-.markdown-body ul,.markdown-body ol { padding-left: 22px; }
-.markdown-body li { margin: 5px 0; }
-.markdown-body blockquote {
+.reader .markdown-body p + p { margin-top: 0; }
+.reader .markdown-body ul,.reader .markdown-body ol { padding-left: 22px; }
+.reader .markdown-body li { margin: 5px 0; }
+.reader .markdown-body blockquote {
   border-left: 3px solid #b6c8ed;
   color: #687891;
   margin: 14px 0;
   padding: 5px 14px;
 }
-.markdown-body hr {
+.reader .markdown-body hr {
   border: 0;
   border-top: 2px solid #e5e7eb;
   margin: 56px 0;
 }
-.markdown-body table { border-collapse: collapse; display: block; font-size: 10px; margin: 14px 0; max-width: 100%; overflow-x: auto; width: max-content; }
-.markdown-body th,.markdown-body td { border: 1px solid #e6ebf2; padding: 7px 9px; text-align: left; }
-.markdown-body th { background: #f5f7fb; color: #34425a; }
-.markdown-body code { background: #f1f4f8; border-radius: 3px; font-family: Consolas,monospace; padding: 2px 4px; }
-.markdown-body a { color: var(--blue); }
-.markdown-body strong { font-weight: 700; }
+.reader .markdown-body .study-table-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 28px auto;
+  max-width: 100%;
+  overflow-x: auto;
+  width: 100%;
+}
+.reader .markdown-body table.study-table {
+  border-collapse: collapse;
+  font-size: 18px;
+  line-height: 1.5;
+  margin: 0 auto;
+  max-width: 100%;
+  width: 100%;
+}
+.reader .markdown-body .study-table th,
+.reader .markdown-body .study-table td {
+  border: 1px solid #dbe3ef;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.reader .markdown-body .study-table th {
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-weight: 700;
+}
+.reader .markdown-body strong { font-weight: 700; }
+.content-answer {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  text-align: left !important;
+}
+
+.content-toc {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  margin: 28px auto;
+  max-width: 740px;
+  padding: 16px 20px;
+}
+.content-toc ul { list-style: none; margin: 0; padding: 0; }
+.content-toc li {
+  align-items: baseline;
+  border-bottom: 1px solid #e5e7eb;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 9px 0;
+}
+.content-toc li:last-child { border-bottom: 0; }
+.content-toc .toc-number { color: #1e3a8a; font-weight: 700; }
+.content-toc .toc-title { min-width: 0; }
+.content-toc .toc-page { color: #64748b; font-variant-numeric: tabular-nums; }
 
 .content-callout {
   border-radius: 14px;
@@ -618,27 +699,27 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
 }
 .empty-state { color: #8995a8; font-size: 11px; padding: 28px 14px; text-align: center; }
 
-@media (max-width: 648px) {
-  .markdown-body {
+@media (max-width: 600px) {
+  .reader .markdown-body {
     font-size: 18px;
     padding: 44px 20px 72px;
   }
-  .markdown-body h1 {
-    font-size: 26px;
-    gap: 12px;
-  }
-  .markdown-body h1 .chapter-number {
-    height: 52px;
-    width: 52px;
-    font-size: 24px;
-  }
-  .markdown-body h2 {
+  .reader .markdown-body h1 {
     font-size: 22px;
     gap: 10px;
   }
-  .markdown-body h2 .section-badge {
-    min-width: 50px;
-    padding: 8px 10px;
+  .reader .markdown-body h1 .chapter-number {
+    height: 42px;
+    width: 42px;
+    font-size: 18px;
+  }
+  .reader .markdown-body h2 {
+    font-size: 18px;
+    gap: 8px;
+  }
+  .reader .markdown-body h2 .section-badge {
+    min-width: 42px;
+    padding: 6px 8px;
   }
   .content-callout {
     padding: 18px 18px;
@@ -646,6 +727,8 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   .accounting-users-structure .users-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .content-toc { padding: 12px 14px; }
+  .content-toc li { gap: 6px 8px; }
 }
 
 .study-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; margin-bottom: 15px; }

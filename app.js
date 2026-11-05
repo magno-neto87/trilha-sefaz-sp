@@ -609,6 +609,9 @@ function inlineMarkdown(value) {
 function renderStudyHeading(level, text) {
   const cleanText = text.trim();
   const plainText = cleanText.replace(/[*_`]/g, "").trim();
+  if (isAnswerLine(plainText)) {
+    return `<p class="content-answer"><strong>${inlineMarkdown(cleanText)}</strong></p>`;
+  }
   const numberedHeading = plainText.match(/^(\d+(?:\.\d+)*)(?:\s*[:.)-]\s*|\s+)(.+)$/);
   if (numberedHeading) {
     const [, number, headingText] = numberedHeading;
@@ -620,6 +623,46 @@ function renderStudyHeading(level, text) {
   }
   const semanticLevel = Math.min(level, 3);
   return `<h${semanticLevel}>${inlineMarkdown(cleanText)}</h${semanticLevel}>`;
+}
+
+function isAnswerLine(text) {
+  const plainText = text.replace(/[*_`]/g, "").trim();
+  return /^(?:a\s+letra\s+[a-e]\s+está\s+(?:correta|incorreta)|a\s+alternativa\s+[a-e]\s+(?:está\s+)?(?:correta|incorreta|errada)|alternativa\s+(?:correta|incorreta|errada)|resposta(?:\s+correta)?|gabarito)\b/i.test(plainText);
+}
+
+function normalizeContentMarkdown(markdown) {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const repeatedHeaders = new Map();
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$/);
+    if (match) {
+      const key = match[1].replace(/\s+/g, " ").trim().toLocaleLowerCase("pt-BR");
+      repeatedHeaders.set(key, (repeatedHeaders.get(key) || 0) + 1);
+    }
+  }
+  const contentLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    const plain = trimmed.replace(/[*_`#]/g, "").trim();
+    const numberedHeader = trimmed.match(/^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$/);
+    const markupPlaceholder = /(?:<|&lt;)\/?(?:mark|u)(?:\s|>|&gt;)/i.test(trimmed)
+      && !trimmed.replace(/<[^>]*>|&lt;[^&]*?&gt;/gi, "").replace(/[#*_~`\s]/g, "");
+    return !(
+      /^(?:estratégia\s*concursos|estratégiaconcursos)\s+(?:\*\*|__)?\s*\d{1,3}\.\s+/i.test(trimmed)
+      || /^[:：]?\s*<sup>Estrat[eé]gia<\/sup>\s*Concursos$/i.test(trimmed)
+      || /^\d{1,3}\s*\/\s*\d{1,3}$/.test(plain)
+      || markupPlaceholder
+      || (numberedHeader && repeatedHeaders.get(numberedHeader[1].replace(/\s+/g, " ").trim().toLocaleLowerCase("pt-BR")) > 1)
+      || (/^(?:\*\*|__)?\s*Prof\.?\s+.+?(?:\*\*|__)?$/i.test(trimmed) && plain.length < 140)
+      || (/^(?:\*\*|__)?[^*_]*\b(?:SEFAZ-SP|Auditor Fiscal)\b[^*_]*\bProf\.?\s+.+?(?:\*\*|__)?$/i.test(trimmed))
+    );
+  });
+  return contentLines.join("\n")
+    .replace(/<!--\s*(?:Start|End) of picture text\s*-->/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/?(?:sup|sub|mark|u)\b[^>]*>/gi, "")
+    .replace(/&lt;\/?(?:mark|sup|sub|u)\b[^&]*?&gt;/gi, "")
+    .replace(/[ \t]{2,}/g, " ");
 }
 
 function renderStudyCallout(text) {
@@ -637,9 +680,42 @@ function renderStudyCallout(text) {
   return null;
 }
 
+function parseContentsEntry(cells) {
+  const text = cells.join(" ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/[*_`]/g, "")
+    .replace(/\.{2,}|…+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = text.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+(?:(\d{1,4})\s+)?(.+)$/);
+  if (!match) return null;
+  return { number: match[1], page: match[2] || "", title: match[3].trim() };
+}
+
+function renderMarkdownTable(tableRows) {
+  const rows = tableRows.filter((line) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(line));
+  if (!rows.length) return "";
+  const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+  const parsedRows = rows.map(cells);
+  if (parsedRows.length === 1) {
+    const text = parsedRows[0].filter(Boolean).join(" ");
+    return `<p class="table-continuation">${inlineMarkdown(text)}</p>`;
+  }
+  const tocEntries = parsedRows.map(parseContentsEntry);
+  const matchingEntries = tocEntries.filter(Boolean);
+  if (matchingEntries.length >= 2 && matchingEntries.length / parsedRows.length >= 0.6) {
+    return `<nav class="content-toc" aria-label="Sumário"><ul>${matchingEntries.map((entry) => (
+      `<li><span class="toc-number">${inlineMarkdown(entry.number)}</span><span class="toc-title">${inlineMarkdown(entry.title)}</span>${entry.page ? `<span class="toc-page">${inlineMarkdown(entry.page)}</span>` : ""}</li>`
+    )).join("")}</ul></nav>`;
+  }
+  const header = parsedRows[0];
+  const body = parsedRows.slice(1);
+  return `<div class="study-table-wrap"><table class="study-table"><thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
 function renderMarkdown(markdown) {
   if (!markdown?.trim()) return '<p class="empty-state">Este material ainda não possui texto teórico separado.</p>';
-  const normalizedMarkdown = markdown.replace(/\r\n?/g, "\n");
+  const normalizedMarkdown = normalizeContentMarkdown(markdown);
   const lines = normalizedMarkdown.split("\n");
   const html = [];
   let paragraph = [];
@@ -648,12 +724,6 @@ function renderMarkdown(markdown) {
   const flushParagraph = () => {
     if (!paragraph.length) return;
     const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
-    const pictureText = text.match(/^<!--\s*Start of picture text\s*-->\s*(.+)$/i);
-    if (pictureText && /Usuários da contabilidade/i.test(pictureText[1])) {
-      html.push(renderAccountingUsersDiagram());
-      paragraph = [];
-      return;
-    }
     const numberedTitle = text.match(/^\*{1,2}(\d+(?:\.\d+)*)(?:\s*[:.)-]\s*|\s+)(.+?)\*{1,2}\s*$/);
     if (numberedTitle) {
       const number = numberedTitle[1];
@@ -662,9 +732,14 @@ function renderMarkdown(markdown) {
       paragraph = [];
       return;
     }
-    const pictureRemainder = text.match(/^Usuários da contabilidade\s+Investidores atuais[\s\S]*$/i);
+    const pictureRemainder = text.match(/^Usuários da contabilidade\b(?=.*Investidores atuais)(?=.*Empregados)(?=.*Credores)[\s\S]*$/i);
     if (pictureRemainder) {
       html.push(renderAccountingUsersDiagram());
+      paragraph = [];
+      return;
+    }
+    if (isAnswerLine(text)) {
+      html.push(`<p class="content-answer"><strong>${inlineMarkdown(text)}</strong></p>`);
       paragraph = [];
       return;
     }
@@ -682,20 +757,14 @@ function renderMarkdown(markdown) {
   };
   const flushTable = () => {
     if (!tableRows.length) return;
-    const rows = tableRows.filter((line) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(line));
-    if (rows.length) {
-      const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
-      const header = cells(rows[0]);
-      const body = rows.slice(1).map(cells);
-      html.push(`<table><thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
-    }
+    html.push(renderMarkdownTable(tableRows));
     tableRows = [];
   };
   for (const rawLine of lines) {
     const line = rawLine.trim();
     const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
     const list = line.match(/^([-*+]|\d+[.)])\s+(.+)$/);
-    if (line.includes("|") && /^\|?.+\|.+\|?$/.test(line)) {
+    if (line.includes("|") && (/^\|?.+\|.+\|?$/.test(line) || /^\|.+\|$/.test(line))) {
       flushParagraph(); flushList(); tableRows.push(line); continue;
     }
     flushTable();

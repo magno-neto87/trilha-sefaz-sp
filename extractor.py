@@ -48,6 +48,13 @@ EXAM_SOURCE = re.compile(
     r"(?i)^\s*(?:19|20)\d{2}\s+(?:FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|"
     r"CONSULPLAN|FCC|IADES|FADESP|FUNDATEC)\b.*$"
 )
+NUMBERED_BOLD_LINE = re.compile(
+    r"(?i)^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$"
+)
+BRANDED_RUNNING_HEADER = re.compile(
+    r"(?i)^\s*(?:estrat[eé]gia\s*concursos|estrat[eé]giaconcursos)\s+"
+    r"(?:\*\*|__)?\s*\d{1,3}\.\s+.+$"
+)
 BANK_MARKER = re.compile(
     r"(?im)^\s*(?:(?:19|20)\d{2}\s+)?(?:banca(?:\s+examinadora)?\s*[:：\-]\s*)?"
     r"(FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|CONSULPLAN|IADES|FADESP|FUNDATEC)\b"
@@ -158,6 +165,47 @@ def clean_study_metadata(block: str) -> str:
             continue
         cleaned.append(line)
     return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
+
+
+def clean_content_artifacts(block: str) -> str:
+    lines = block.splitlines()
+    numbered_headers: dict[str, int] = {}
+    for line in lines:
+        match = NUMBERED_BOLD_LINE.fullmatch(line)
+        if match:
+            title = re.sub(r"\s+", " ", match.group(1)).strip().casefold()
+            numbered_headers[title] = numbered_headers.get(title, 0) + 1
+
+    cleaned: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        plain = re.sub(r"[*_`#]", "", stripped).strip()
+        markup_placeholder = (
+            re.search(r"(?:<|&lt;)\/?(?:mark|u)(?:\s|>|&gt;)", stripped, re.I)
+            and not re.sub(r"[#*_~`\s]", "", re.sub(r"<[^>]*>|&lt;[^&]*?&gt;", "", stripped))
+        )
+        numbered_header = NUMBERED_BOLD_LINE.fullmatch(line)
+        if (
+            BRANDED_RUNNING_HEADER.fullmatch(line)
+            or re.fullmatch(r"(?i)[:：]?\s*<sup>Estrat[eé]gia</sup>\s*Concursos", stripped)
+            or PAGE_COUNTER.fullmatch(plain)
+            or markup_placeholder
+            or (numbered_header and numbered_headers[
+                re.sub(r"\s+", " ", numbered_header.group(1)).strip().casefold()
+            ] > 1)
+            or (
+                re.fullmatch(r"(?i)(?:\*\*|__)?\s*Prof\.?\s+.+?(?:\*\*|__)?", stripped)
+                and len(plain) < 140
+            )
+        ):
+            continue
+        cleaned.append(line)
+    result = "\n".join(cleaned)
+    result = re.sub(r"<!--\s*(?:Start|End) of picture text\s*-->", "", result, flags=re.I)
+    result = re.sub(r"<!--[\s\S]*?-->", "", result)
+    result = re.sub(r"<br\s*/?>", " ", result, flags=re.I)
+    result = re.sub(r"</?(?:sup|sub|mark|u)\b[^>]*>", "", result, flags=re.I)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
 def clean_pdf_artifacts(block: str) -> str:
@@ -275,7 +323,7 @@ def question_from_block(
 def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict[str, Any]]]:
     matches = list(QUESTION_MARKER.finditer(markdown))
     if not matches:
-        return clean_study_metadata(remove_page_counters(markdown)), []
+        return clean_content_artifacts(clean_study_metadata(remove_page_counters(markdown))), []
 
     starts: list[int] = []
     for index, match in enumerate(matches):
@@ -290,7 +338,7 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
 
     questions: list[dict[str, Any]] = []
     if not starts:
-        return clean_study_metadata(remove_page_counters(markdown)), []
+        return clean_content_artifacts(clean_study_metadata(remove_page_counters(markdown))), []
 
     theory_parts = [markdown[:starts[0]]]
     headings = list(HEADING.finditer(markdown))
@@ -341,9 +389,9 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
         if parsed["statement"] or parsed["options"]:
             questions.append(parsed)
         theory_parts.append(theory_tail)
-    theory = clean_study_metadata(
+    theory = clean_content_artifacts(clean_study_metadata(
         remove_page_counters("\n".join(part.strip() for part in theory_parts if part.strip()))
-    )
+    ))
     unique_questions: list[dict[str, Any]] = []
     question_positions: dict[str, int] = {}
     for question in questions:
