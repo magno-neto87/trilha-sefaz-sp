@@ -20,6 +20,7 @@ const STORAGE_KEYS = {
   pomodoroSessions: "trilha-pomodoro-sessions-v1",
   materialReviews: "trilha-material-reviews-v1",
   readingPositions: "trilha-reading-positions-v1",
+  calendarCompletions: "trilha-calendar-completions-v1",
 };
 const state = {
   manifest: null,
@@ -41,6 +42,9 @@ const state = {
   flashcardFlipped: false,
   questionTimer: null,
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  calendarSelectedDate: null,
+  calendarViewMode: "month",
+  calendarFilter: "all",
   timerInterval: null,
   reviewQuestionId: null,
   supabase: null,
@@ -1243,50 +1247,580 @@ function distributeWeightedSlots(subjects, weights, slots) {
   return schedule;
 }
 
-function buildOrganizationCalendar(month, schedule, events, plan, questionReviews, materialReviews) {
+function formatCalendarLongDate(dateKey) {
+  if (!dateKey) return "";
+  const parts = dateKey.split("-").map(Number);
+  if (parts.length < 3) return dateKey;
+  const date = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+  const weekday = date.toLocaleDateString("pt-BR", { weekday: "long" });
+  const day = date.getDate();
+  const month = date.toLocaleDateString("pt-BR", { month: "long" });
+  const year = date.getFullYear();
+  return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)}, ${day} de ${month} de ${year}`;
+}
+
+function formatCalendarShortDate(dateKey) {
+  if (!dateKey) return "";
+  const parts = dateKey.split("-").map(Number);
+  if (parts.length < 3) return dateKey;
+  return `${String(parts[2]).padStart(2, "0")}/${String(parts[1]).padStart(2, "0")}/${parts[0]}`;
+}
+
+function getCalendarRelativeBadge(dateKey) {
+  const today = localDateKey();
+  if (dateKey === today) return "Hoje";
+  const tomorrow = localDateKey(addDays(new Date(), 1));
+  if (dateKey === tomorrow) return "Amanhã";
+  const yesterday = localDateKey(addDays(new Date(), -1));
+  if (dateKey === yesterday) return "Ontem";
+  return "";
+}
+
+function collectCalendarItems(targetMonth, schedule, events, plan, questionReviews, materialReviews, completions) {
+  const itemsByDate = new Map();
+  const addItem = (item) => {
+    if (!itemsByDate.has(item.date)) itemsByDate.set(item.date, []);
+    itemsByDate.get(item.date).push(item);
+  };
+
+  const subjectNames = new Map(state.manifest.subjects.map((s) => [s.id, s.name]));
+  const year = targetMonth.getFullYear();
+  const month = targetMonth.getMonth();
+
+  // Cobrir desde 14 dias antes do 1º dia do mês até 21 dias depois do fim
+  const startDate = new Date(year, month, 1 - 14);
+  const endDate = new Date(year, month + 1, 21);
+
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    const dateKey = localDateKey(d);
+    const dayOfWeek = d.getDay();
+
+    for (const entry of plan?.entries || []) {
+      if (Number(entry.weekday) === dayOfWeek) {
+        const id = `plan-${dateKey}-${entry.id || entry.startTime}-${entry.subjectId}`;
+        addItem({
+          id,
+          date: dateKey,
+          time: entry.startTime || "08:00",
+          minutes: entry.minutes || 30,
+          title: subjectNames.get(entry.subjectId) || "Estudo do Ciclo",
+          type: "plan",
+          category: "plan",
+          typeLabel: "Ciclo de Estudos",
+          subjectId: entry.subjectId,
+          subjectName: subjectNames.get(entry.subjectId) || "Disciplina",
+          materialId: null,
+          questionId: null,
+          completed: !!completions[id],
+          isCustom: false,
+        });
+      }
+    }
+
+    for (const entry of schedule) {
+      if (Number(entry.weekday) === dayOfWeek) {
+        const id = `sched-${dateKey}-${entry.id || entry.startTime}`;
+        addItem({
+          id,
+          date: dateKey,
+          time: entry.startTime || "08:00",
+          minutes: entry.minutes || 60,
+          title: subjectNames.get(entry.subjectId) || "Rotina de Estudos",
+          type: "study",
+          category: "plan",
+          typeLabel: "Rotina Semanal",
+          subjectId: entry.subjectId,
+          subjectName: subjectNames.get(entry.subjectId) || "Disciplina",
+          materialId: null,
+          questionId: null,
+          completed: !!completions[id],
+          isCustom: false,
+        });
+      }
+    }
+  }
+
+  for (const [questionId, review] of Object.entries(questionReviews)) {
+    if (!review.dueAt) continue;
+    const dateKey = localDateKey(new Date(review.dueAt));
+    const metadata = state.questionIndexCache?.get(questionId);
+    const id = `rev-q-${questionId}-${dateKey}`;
+    addItem({
+      id,
+      date: dateKey,
+      time: "09:00",
+      minutes: 15,
+      title: metadata?.topic ? `Questão: ${metadata.topic}` : (metadata?.bank ? `Questão ${metadata.bank}` : "Revisão de Questão"),
+      type: "review",
+      category: "review",
+      typeLabel: "Revisão de Questão",
+      subjectId: metadata?.subjectId || null,
+      subjectName: metadata?.subjectName || (metadata?.subjectId ? subjectNames.get(metadata.subjectId) : null),
+      materialId: null,
+      questionId,
+      completed: !!completions[id],
+      isCustom: false,
+    });
+  }
+
+  for (const [materialId, review] of Object.entries(materialReviews)) {
+    if (!review.dueAt) continue;
+    const dateKey = localDateKey(new Date(review.dueAt));
+    const id = `rev-m-${materialId}-${dateKey}`;
+    addItem({
+      id,
+      date: dateKey,
+      time: "09:30",
+      minutes: 25,
+      title: review.title ? `Conteúdo: ${review.title}` : "Revisão de Conteúdo",
+      type: "review",
+      category: "review",
+      typeLabel: "Revisão de Conteúdo",
+      subjectId: review.subjectId || null,
+      subjectName: review.subjectId ? subjectNames.get(review.subjectId) : null,
+      materialId,
+      questionId: null,
+      completed: !!completions[id],
+      isCustom: false,
+    });
+  }
+
+  for (const event of events) {
+    if (!event.date) continue;
+    const id = `event-${event.id}`;
+    const typeLabel = event.type === "simulation" ? "Simulado" : (event.type === "review" ? "Revisão" : "Meta / Lembrete");
+    addItem({
+      id,
+      date: event.date,
+      time: event.time || "08:00",
+      minutes: event.minutes || 60,
+      title: event.title,
+      type: event.type || "goal",
+      category: "custom",
+      typeLabel,
+      subjectId: null,
+      subjectName: null,
+      materialId: null,
+      questionId: null,
+      completed: !!completions[id],
+      isCustom: true,
+      originalId: event.id,
+    });
+  }
+
+  for (const list of itemsByDate.values()) {
+    list.sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+  }
+
+  return itemsByDate;
+}
+
+function filterCalendarItems(items, filter) {
+  if (!filter || filter === "all") return items;
+  if (filter === "plan") return items.filter((i) => i.category === "plan");
+  if (filter === "review") return items.filter((i) => i.category === "review");
+  if (filter === "custom") return items.filter((i) => i.category === "custom" || i.type === "simulation" || i.type === "goal");
+  if (filter === "pending") return items.filter((i) => !i.completed);
+  if (filter === "completed") return items.filter((i) => i.completed);
+  return items;
+}
+
+function renderCalendarMonthView(month, itemsByDate) {
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
   const firstDay = new Date(year, monthIndex, 1);
   const startOffset = (firstDay.getDay() + 6) % 7;
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-  const subjectNames = new Map(state.manifest.subjects.map((subject) => [subject.id, subject.name]));
-  const eventByDate = new Map();
-  const addEvent = (date, title, type) => {
-    if (!eventByDate.has(date)) eventByDate.set(date, []);
-    eventByDate.get(date).push({ title, type });
-  };
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(year, monthIndex, day);
-    for (const entry of schedule) {
-      if (Number(entry.weekday) === date.getDay()) {
-        addEvent(localDateKey(date), `${entry.startTime} · ${subjectNames.get(entry.subjectId) || "Estudo"} (${entry.minutes} min)`, "study");
-      }
-    }
-    for (const entry of plan?.entries || []) {
-      if (Number(entry.weekday) === date.getDay()) {
-        addEvent(localDateKey(date), `Ciclo · ${entry.startTime} · ${subjectNames.get(entry.subjectId) || "Estudo"}`, "plan");
-      }
-    }
-  }
-  for (const [questionId, review] of Object.entries(questionReviews)) {
-    const metadata = state.questionIndexCache?.get(questionId);
-    if (review.dueAt) addEvent(localDateKey(new Date(review.dueAt)), `Revisar questão · ${metadata?.topic || "questão"}`, "review");
-  }
-  for (const review of Object.values(materialReviews)) {
-    if (review.dueAt) addEvent(localDateKey(new Date(review.dueAt)), `Revisar conteúdo · ${review.title || "material"}`, "review");
-  }
-  for (const event of events) addEvent(event.date, event.title, event.type);
+  const todayKey = localDateKey();
+
   const headers = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-  const cells = headers.map((header) => `<div class="calendar-weekday">${header}</div>`).join("");
-  const blanks = Array.from({ length: startOffset }, () => '<div class="calendar-day empty"></div>').join("");
-  const days = Array.from({ length: daysInMonth }, (_, index) => {
-    const day = index + 1;
-    const date = localDateKey(new Date(year, monthIndex, day));
-    const entries = eventByDate.get(date) || [];
-    const todayClass = date === localDateKey() ? " today" : "";
-    return `<div class="calendar-day${todayClass}"><strong>${day}</strong><div class="calendar-day-events">${entries.slice(0, 3).map((item) => `<span class="calendar-event ${escapeHtml(item.type)}" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>`).join("")}${entries.length > 3 ? `<small>+${entries.length - 3} itens</small>` : ""}</div></div>`;
+  const headerHtml = headers.map((h) => `<div class="cal-col-header">${h}</div>`).join("");
+  const blankHtml = Array.from({ length: startOffset }, () => '<div class="cal-day-cell empty"></div>').join("");
+
+  const daysHtml = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1;
+    const dateKey = localDateKey(new Date(year, monthIndex, day));
+    const allItems = itemsByDate.get(dateKey) || [];
+    const filtered = filterCalendarItems(allItems, state.calendarFilter);
+    const completedCount = allItems.filter((item) => item.completed).length;
+    const isSelected = dateKey === state.calendarSelectedDate;
+    const isToday = dateKey === todayKey;
+
+    const planItems = filtered.filter((item) => item.category === "plan");
+    const reviewItems = filtered.filter((item) => item.category === "review");
+    const customItems = filtered.filter((item) => item.category === "custom");
+
+    const planMinutes = planItems.reduce((sum, item) => sum + (item.minutes || 30), 0);
+    const allDone = allItems.length > 0 && completedCount === allItems.length;
+
+    let cellClasses = "cal-day-cell";
+    if (isToday) cellClasses += " today";
+    if (isSelected) cellClasses += " selected";
+    if (allItems.length) cellClasses += " has-events";
+    if (allDone) cellClasses += " all-done";
+
+    return `
+      <div class="${cellClasses}" data-calendar-date="${dateKey}" role="button" tabindex="0" aria-label="Dia ${day}, ${allItems.length} atividades">
+        <div class="cal-day-cell-top">
+          <span class="cal-day-num">${day}</span>
+          ${allItems.length ? `
+            <span class="cal-day-counter ${allDone ? 'done' : ''}" title="${completedCount} de ${allItems.length} concluídas">
+              ${allDone ? '✓ ' : ''}${completedCount}/${allItems.length}
+            </span>
+          ` : ""}
+        </div>
+        <div class="cal-day-badges-list">
+          ${planItems.length ? `
+            <div class="cal-badge plan" title="${planItems.length} blocos de estudo no ciclo (${(planMinutes / 60).toFixed(1)} h)">
+              <span class="badge-dot"></span>
+              <span class="badge-label">${planItems.length} blocos (${(planMinutes / 60).toFixed(1)}h)</span>
+            </div>
+          ` : ""}
+          ${reviewItems.length ? `
+            <div class="cal-badge review" title="${reviewItems.length} revisões agendadas">
+              <span class="badge-dot"></span>
+              <span class="badge-label">🔄 ${reviewItems.length} revisão(ões)</span>
+            </div>
+          ` : ""}
+          ${customItems.slice(0, 2).map((item) => `
+            <div class="cal-badge ${item.type === 'simulation' ? 'simulation' : 'custom'}" title="${escapeHtml(item.title)}">
+              <span class="badge-dot"></span>
+              <span class="badge-label">${item.type === 'simulation' ? '🎯' : '⭐'} ${escapeHtml(item.title)}</span>
+            </div>
+          `).join("")}
+          ${customItems.length > 2 ? `<span class="cal-badge-more">+${customItems.length - 2} mais</span>` : ""}
+        </div>
+      </div>
+    `;
   }).join("");
-  return `<div class="calendar-grid">${cells}${blanks}${days}</div>`;
+
+  return `<div class="calendar-month-grid">${headerHtml}${blankHtml}${daysHtml}</div>`;
+}
+
+function renderCalendarWeekView(itemsByDate) {
+  const selectedDate = state.calendarSelectedDate
+    ? new Date(`${state.calendarSelectedDate}T12:00:00`)
+    : new Date();
+  const dayOfWeek = selectedDate.getDay();
+  const mondayOffset = (dayOfWeek + 6) % 7;
+  const monday = new Date(selectedDate);
+  monday.setDate(selectedDate.getDate() - mondayOffset);
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    days.push(d);
+  }
+
+  const todayKey = localDateKey();
+  const weekdayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+
+  const columnsHtml = days.map((d, index) => {
+    const dateKey = localDateKey(d);
+    const allItems = itemsByDate.get(dateKey) || [];
+    const filtered = filterCalendarItems(allItems, state.calendarFilter);
+    const completedCount = allItems.filter((i) => i.completed).length;
+    const isToday = dateKey === todayKey;
+    const isSelected = dateKey === state.calendarSelectedDate;
+
+    return `
+      <div class="cal-week-col ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}" data-calendar-date="${dateKey}">
+        <div class="cal-week-col-head">
+          <span class="cal-week-day-name">${weekdayNames[index]}</span>
+          <span class="cal-week-date-num">${d.getDate()}/${d.getMonth() + 1}</span>
+          ${allItems.length ? `
+            <small class="cal-week-progress">${completedCount}/${allItems.length} feitos</small>
+          ` : `<small class="cal-week-empty-hint">Livre</small>`}
+        </div>
+        <div class="cal-week-tasks-stack">
+          ${filtered.length ? filtered.map((item) => `
+            <div class="cal-week-task-item ${item.completed ? 'completed' : ''} ${item.type}">
+              <label class="task-check-mini">
+                <input type="checkbox" class="cal-task-checkbox" data-task-id="${item.id}" ${item.completed ? 'checked' : ''}>
+                <span class="check-box"></span>
+              </label>
+              <div class="task-week-content">
+                <span class="task-week-time">${escapeHtml(item.time)} (${item.minutes}m)</span>
+                <span class="task-week-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+              </div>
+            </div>
+          `).join("") : `
+            <div class="cal-week-empty">Sem tarefas</div>
+          `}
+        </div>
+        <button class="cal-week-add-btn" type="button" data-quick-date="${dateKey}" title="Adicionar atividade neste dia">
+          ＋ Adicionar
+        </button>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="calendar-week-wrap">
+      <div class="calendar-week-grid">${columnsHtml}</div>
+    </div>
+  `;
+}
+
+function renderCalendarAgendaView(itemsByDate) {
+  const dates = [...itemsByDate.keys()].sort();
+  const todayKey = localDateKey();
+  const relevantDates = dates.filter((d) => {
+    const list = filterCalendarItems(itemsByDate.get(d) || [], state.calendarFilter);
+    return list.length > 0;
+  });
+
+  if (!relevantDates.length) {
+    return `<div class="empty-state">Nenhuma atividade encontrada com o filtro selecionado.</div>`;
+  }
+
+  return `
+    <div class="calendar-agenda-list">
+      ${relevantDates.slice(0, 15).map((dateKey) => {
+        const items = filterCalendarItems(itemsByDate.get(dateKey) || [], state.calendarFilter);
+        const isToday = dateKey === todayKey;
+        const relBadge = getCalendarRelativeBadge(dateKey);
+
+        return `
+          <div class="cal-agenda-day-card ${isToday ? 'today' : ''}">
+            <div class="cal-agenda-day-header">
+              <div class="cal-agenda-day-title">
+                <strong>${formatCalendarLongDate(dateKey)}</strong>
+                ${relBadge ? `<span class="day-relative-badge ${isToday ? 'today' : ''}">${relBadge}</span>` : ""}
+              </div>
+              <span class="cal-agenda-count">${items.length} atividade(s)</span>
+            </div>
+            <div class="cal-agenda-items">
+              ${items.map((item) => `
+                <div class="day-task-card ${item.completed ? 'completed' : ''} ${item.type}">
+                  <label class="task-check-wrap">
+                    <input type="checkbox" class="cal-task-checkbox" data-task-id="${item.id}" ${item.completed ? 'checked' : ''}>
+                    <span class="task-checkmark"></span>
+                  </label>
+                  <div class="task-info-main">
+                    <div class="task-meta-row">
+                      <span class="task-badge ${item.type}">${escapeHtml(item.typeLabel)}</span>
+                      <span class="task-time">🕒 ${escapeHtml(item.time)} (${item.minutes} min)</span>
+                      ${item.completed ? '<span class="task-status-done">✓ Concluído</span>' : ''}
+                    </div>
+                    <div class="task-title-text ${item.completed ? 'strikethrough' : ''}">
+                      ${escapeHtml(item.title)}
+                    </div>
+                  </div>
+                  <div class="task-card-actions">
+                    ${item.subjectId ? `
+                      <button type="button" class="button secondary btn-sm" data-study-subject="${escapeHtml(item.subjectId)}" title="Abrir material desta disciplina">▶ Estudar</button>
+                    ` : ""}
+                    ${item.questionId ? `
+                      <button type="button" class="button secondary btn-sm" data-review-question="${escapeHtml(item.questionId)}" title="Abrir questão para revisão">🔍 Revisar</button>
+                    ` : ""}
+                    ${item.materialId ? `
+                      <button type="button" class="button secondary btn-sm" data-review-material="${escapeHtml(item.materialId)}" title="Abrir conteúdo para revisão">📖 Revisar</button>
+                    ` : ""}
+                    ${item.isCustom ? `
+                      <button type="button" class="btn-icon-danger" data-delete-event="${escapeHtml(item.originalId)}" title="Excluir este evento">🗑️</button>
+                    ` : ""}
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSelectedDayPanel(itemsByDate) {
+  const selectedDate = state.calendarSelectedDate || localDateKey();
+  const allItems = itemsByDate.get(selectedDate) || [];
+  const filtered = filterCalendarItems(allItems, state.calendarFilter);
+  const completedCount = allItems.filter((i) => i.completed).length;
+  const totalMinutes = allItems.reduce((sum, item) => sum + (item.minutes || 0), 0);
+  const pct = allItems.length ? Math.round((completedCount / allItems.length) * 100) : 0;
+  const relBadge = getCalendarRelativeBadge(selectedDate);
+
+  return `
+    <section class="card calendar-day-panel" id="calendar-day-panel">
+      <div class="day-panel-header">
+        <div class="day-panel-title">
+          <h3>📅 Detalhes do Dia: ${formatCalendarLongDate(selectedDate)}</h3>
+          ${relBadge ? `<span class="day-relative-badge ${relBadge === 'Hoje' ? 'today' : ''}">${relBadge}</span>` : ""}
+        </div>
+        <div class="day-panel-stats">
+          <div class="day-stat-chip">
+            <span>Atividades:</span> <strong>${allItems.length}</strong>
+          </div>
+          <div class="day-stat-chip">
+            <span>Concluídas:</span> <strong class="${completedCount === allItems.length && allItems.length > 0 ? 'text-done' : ''}">${completedCount}</strong>
+          </div>
+          <div class="day-stat-chip">
+            <span>Tempo planejado:</span> <strong>${(totalMinutes / 60).toFixed(1)} h</strong>
+          </div>
+        </div>
+      </div>
+
+      ${allItems.length ? `
+        <div class="day-progress-bar-row">
+          <div class="progress-track">
+            <div class="progress-fill ${pct === 100 ? 'done' : ''}" style="width: ${pct}%"></div>
+          </div>
+          <span class="day-progress-pct">${pct}% concluído (${completedCount}/${allItems.length})</span>
+        </div>
+      ` : ""}
+
+      <div class="day-tasks-list">
+        ${filtered.length ? filtered.map((item) => `
+          <div class="day-task-card ${item.completed ? 'completed' : ''} ${item.type}">
+            <label class="task-check-wrap" title="${item.completed ? 'Marcar como pendente' : 'Marcar como concluída'}">
+              <input type="checkbox" class="cal-task-checkbox" data-task-id="${item.id}" ${item.completed ? 'checked' : ''}>
+              <span class="task-checkmark"></span>
+            </label>
+            <div class="task-info-main">
+              <div class="task-meta-row">
+                <span class="task-badge ${item.type}">${escapeHtml(item.typeLabel)}</span>
+                <span class="task-time">🕒 ${escapeHtml(item.time)} (${item.minutes} min)</span>
+                ${item.completed ? '<span class="task-status-done">✓ Concluído</span>' : ''}
+              </div>
+              <div class="task-title-text ${item.completed ? 'strikethrough' : ''}">
+                ${escapeHtml(item.title)}
+              </div>
+            </div>
+            <div class="task-card-actions">
+              ${item.subjectId ? `
+                <button type="button" class="button secondary btn-sm" data-study-subject="${escapeHtml(item.subjectId)}" title="Abrir material desta disciplina">
+                  ▶ Estudar
+                </button>
+              ` : ""}
+              ${item.questionId ? `
+                <button type="button" class="button secondary btn-sm" data-review-question="${escapeHtml(item.questionId)}" title="Abrir questão para revisão">
+                  🔍 Revisar
+                </button>
+              ` : ""}
+              ${item.materialId ? `
+                <button type="button" class="button secondary btn-sm" data-review-material="${escapeHtml(item.materialId)}" title="Abrir conteúdo para revisão">
+                  📖 Revisar
+                </button>
+              ` : ""}
+              ${item.isCustom ? `
+                <button type="button" class="btn-icon-danger" data-delete-event="${escapeHtml(item.originalId)}" title="Excluir este evento">
+                  🗑️
+                </button>
+              ` : ""}
+            </div>
+          </div>
+        `).join("") : `
+          <div class="empty-state compact">
+            ${allItems.length ? "Nenhuma atividade corresponde ao filtro selecionado." : "Nenhuma atividade agendada para este dia."}
+          </div>
+        `}
+      </div>
+
+      <div class="day-add-form-wrap">
+        <div class="day-add-form-title">
+          <strong>＋ Adicionar atividade em ${formatCalendarShortDate(selectedDate)}:</strong>
+        </div>
+        <form id="calendar-day-quick-add-form" class="day-quick-add-form">
+          <input class="form-control" id="day-add-title" placeholder="Ex.: Simulado 50 questões, Revisão de Custos, Meta..." required maxlength="120">
+          <div class="form-row-quick">
+            <select class="form-control" id="day-add-type">
+              <option value="goal">Meta / Lembrete</option>
+              <option value="simulation">Simulado</option>
+              <option value="review">Revisão</option>
+            </select>
+            <input class="form-control" type="time" id="day-add-time" value="08:00">
+            <button class="button" type="submit">＋ Salvar atividade</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function buildInteractiveCalendar(month, schedule, events, plan, questionReviews, materialReviews, completions) {
+  const itemsByDate = collectCalendarItems(month, schedule, events, plan, questionReviews, materialReviews, completions);
+
+  const monthLabel = month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const capitalizedMonth = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  let totalMonthItems = 0;
+  let totalPlan = 0;
+  let totalReviews = 0;
+  let totalCustom = 0;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const k = localDateKey(new Date(year, monthIndex, day));
+    const items = itemsByDate.get(k) || [];
+    totalMonthItems += items.length;
+    for (const item of items) {
+      if (item.category === "plan") totalPlan++;
+      else if (item.category === "review") totalReviews++;
+      else if (item.category === "custom") totalCustom++;
+    }
+  }
+
+  let viewContent = "";
+  if (state.calendarViewMode === "week") {
+    viewContent = renderCalendarWeekView(itemsByDate);
+  } else if (state.calendarViewMode === "agenda") {
+    viewContent = renderCalendarAgendaView(itemsByDate);
+  } else {
+    viewContent = renderCalendarMonthView(month, itemsByDate);
+  }
+
+  const dayPanelContent = renderSelectedDayPanel(itemsByDate);
+
+  return `
+    <div class="interactive-calendar-wrapper">
+      <div class="calendar-top-bar">
+        <div class="calendar-nav-group">
+          <div class="calendar-nav-buttons">
+            <button class="calendar-nav-btn" id="calendar-prev" type="button" title="Mês anterior" aria-label="Mês anterior">‹</button>
+            <button class="calendar-today-btn" id="calendar-today" type="button" title="Ir para o dia de hoje">Hoje</button>
+            <button class="calendar-nav-btn" id="calendar-next" type="button" title="Próximo mês" aria-label="Próximo mês">›</button>
+          </div>
+          <div class="calendar-title-display">
+            <h3 class="calendar-period-heading">${escapeHtml(capitalizedMonth)}</h3>
+            <span class="calendar-period-sub">${totalMonthItems} atividades no mês</span>
+          </div>
+        </div>
+
+        <div class="calendar-view-switcher">
+          <button class="cal-view-tab ${state.calendarViewMode === "month" ? "active" : ""}" data-cal-view="month" type="button">
+            <span>🗓️</span> Mês
+          </button>
+          <button class="cal-view-tab ${state.calendarViewMode === "week" ? "active" : ""}" data-cal-view="week" type="button">
+            <span>📅</span> Semana
+          </button>
+          <button class="cal-view-tab ${state.calendarViewMode === "agenda" ? "active" : ""}" data-cal-view="agenda" type="button">
+            <span>📋</span> Agenda
+          </button>
+        </div>
+      </div>
+
+      <div class="calendar-filter-bar">
+        <div class="filter-pills-group">
+          <span class="filter-label">Filtrar:</span>
+          <button class="filter-pill ${state.calendarFilter === "all" ? "active" : ""}" data-cal-filter="all" type="button">Todas (${totalMonthItems})</button>
+          <button class="filter-pill ${state.calendarFilter === "plan" ? "active" : ""}" data-cal-filter="plan" type="button">📘 Ciclo (${totalPlan})</button>
+          <button class="filter-pill ${state.calendarFilter === "review" ? "active" : ""}" data-cal-filter="review" type="button">🔄 Revisões (${totalReviews})</button>
+          <button class="filter-pill ${state.calendarFilter === "custom" ? "active" : ""}" data-cal-filter="custom" type="button">🎯 Simulados / Metas (${totalCustom})</button>
+          <button class="filter-pill ${state.calendarFilter === "pending" ? "active" : ""}" data-cal-filter="pending" type="button">⏳ Pendentes</button>
+          <button class="filter-pill ${state.calendarFilter === "completed" ? "active" : ""}" data-cal-filter="completed" type="button">✅ Concluídas</button>
+        </div>
+      </div>
+
+      <div class="calendar-main-view">
+        ${viewContent}
+      </div>
+
+      ${dayPanelContent}
+    </div>
+  `;
 }
 
 async function renderOrganization() {
@@ -1321,6 +1855,8 @@ async function renderOrganization() {
     .sort((a, b) => new Date(a.review.dueAt) - new Date(b.review.dueAt));
   const completedMaterials = readStorage(STORAGE_KEYS.completedMaterials, {});
   const materialReviews = readStorage(STORAGE_KEYS.materialReviews, {});
+  const calendarCompletions = readStorage(STORAGE_KEYS.calendarCompletions, {});
+  state.calendarSelectedDate = state.calendarSelectedDate || localDateKey();
   for (const material of state.manifest.materials) {
     if (!completedMaterials[material.id] || materialReviews[material.id]) continue;
     const subject = state.manifest.subjects.find((item) => item.name === material.subject);
@@ -1391,10 +1927,14 @@ async function renderOrganization() {
         <div class="pomodoro-actions"><button class="button" id="pomodoro-toggle">${timer.running ? "Pausar" : "Iniciar"}</button><button class="button secondary" id="pomodoro-reset">Reiniciar</button></div>
       </section>
       <section class="card panel organization-section calendar-section">
-        <div class="panel-heading"><div><p class="eyebrow">AGENDA VISUAL</p><h2>Calendário de estudos</h2><p>Rotina, plano automático, revisões e simulados.</p></div><div class="calendar-navigation"><button class="button secondary" id="calendar-prev" aria-label="Mês anterior">‹</button><strong>${escapeHtml(monthLabel)}</strong><button class="button secondary" id="calendar-next" aria-label="Próximo mês">›</button></div></div>
-        ${buildOrganizationCalendar(state.calendarMonth, schedule, events, plan, reviewSchedules, materialReviews)}
-        <form id="calendar-event-form" class="organization-form calendar-event-form"><label class="form-label">Adicionar meta, revisão ou simulado<input class="form-control" id="event-title" maxlength="100" placeholder="Ex.: Simulado de Direito Tributário" required></label><div class="form-row"><label class="form-label">Data<input class="form-control" id="event-date" type="date" value="${todayKey}" required></label><label class="form-label">Tipo<select class="form-control" id="event-type"><option value="goal">Meta</option><option value="review">Revisão</option><option value="simulation">Simulado</option></select></label></div><button class="button secondary" type="submit">Adicionar ao calendário</button></form>
-        ${events.length ? `<div class="schedule-list">${renderCalendarEvents(events)}</div>` : ""}
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">AGENDA INTERATIVA</p>
+            <h2>Calendário de estudos</h2>
+            <p>Rotina semanal, plano automático, revisões e simulados com acompanhamento dinâmico.</p>
+          </div>
+        </div>
+        ${buildInteractiveCalendar(state.calendarMonth, schedule, events, plan, reviewSchedules, materialReviews, calendarCompletions)}
       </section>
       <section class="card panel organization-section review-section">
         <div class="panel-heading"><div><p class="eyebrow">REVISÃO ESPAÇADA</p><h2>Lembretes de revisão</h2><p>Questões erradas voltam em 1 dia; acertos, em 3 dias. Os intervalos aumentam com os acertos consecutivos.</p></div></div>
@@ -1559,30 +2099,114 @@ function bindOrganizationEvents() {
     renderOrganization();
   });
 
-  document.getElementById("calendar-event-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const nextEvents = readStorage(STORAGE_KEYS.studyEvents, []);
-    nextEvents.push({
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      title: document.getElementById("event-title").value.trim(),
-      date: document.getElementById("event-date").value,
-      type: document.getElementById("event-type").value,
+  // Interatividade do Calendário
+  view.querySelectorAll("[data-cal-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.calendarViewMode = btn.dataset.calView;
+      renderOrganization();
     });
-    writeStorage(STORAGE_KEYS.studyEvents, nextEvents);
-    renderOrganization();
   });
-  document.querySelectorAll("[data-delete-event]").forEach((button) => button.addEventListener("click", () => {
-    writeStorage(STORAGE_KEYS.studyEvents, readStorage(STORAGE_KEYS.studyEvents, []).filter((item) => item.id !== button.dataset.deleteEvent));
-    renderOrganization();
+
+  view.querySelectorAll("[data-cal-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.calendarFilter = btn.dataset.calFilter;
+      renderOrganization();
+    });
+  });
+
+  view.querySelectorAll("[data-calendar-date]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".cal-task-checkbox") || e.target.closest("button") || e.target.closest("input")) return;
+      state.calendarSelectedDate = el.dataset.calendarDate;
+      renderOrganization();
+      const panel = document.getElementById("calendar-day-panel");
+      if (panel && window.innerWidth < 900) {
+        panel.scrollIntoView({ behavior: "smooth" });
+      }
+    });
+  });
+
+  view.querySelectorAll(".cal-task-checkbox").forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const taskId = e.target.dataset.taskId;
+      const completions = readStorage(STORAGE_KEYS.calendarCompletions, {});
+      if (e.target.checked) completions[taskId] = true;
+      else delete completions[taskId];
+      writeStorage(STORAGE_KEYS.calendarCompletions, completions);
+      renderOrganization();
+    });
+  });
+
+  view.querySelectorAll("[data-quick-date]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.calendarSelectedDate = btn.dataset.quickDate;
+      renderOrganization();
+      document.getElementById("day-add-title")?.focus();
+    });
+  });
+
+  const calendarPrev = document.getElementById("calendar-prev");
+  if (calendarPrev) {
+    calendarPrev.addEventListener("click", () => {
+      state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() - 1, 1);
+      renderOrganization();
+    });
+  }
+
+  const calendarNext = document.getElementById("calendar-next");
+  if (calendarNext) {
+    calendarNext.addEventListener("click", () => {
+      state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() + 1, 1);
+      renderOrganization();
+    });
+  }
+
+  const calendarToday = document.getElementById("calendar-today");
+  if (calendarToday) {
+    calendarToday.addEventListener("click", () => {
+      const now = new Date();
+      state.calendarMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      state.calendarSelectedDate = localDateKey(now);
+      renderOrganization();
+    });
+  }
+
+  const quickAddForm = document.getElementById("calendar-day-quick-add-form");
+  if (quickAddForm) {
+    quickAddForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const title = document.getElementById("day-add-title").value.trim();
+      const type = document.getElementById("day-add-type").value;
+      const time = document.getElementById("day-add-time").value || "08:00";
+      if (!title) return;
+      const nextEvents = readStorage(STORAGE_KEYS.studyEvents, []);
+      nextEvents.push({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        title,
+        date: state.calendarSelectedDate || localDateKey(),
+        type,
+        time,
+      });
+      writeStorage(STORAGE_KEYS.studyEvents, nextEvents);
+      showNotice(`Atividade adicionada para ${formatCalendarShortDate(state.calendarSelectedDate || localDateKey())}!`);
+      renderOrganization();
+    });
+  }
+
+  view.querySelectorAll("[data-study-subject]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setSubject(btn.dataset.studySubject);
+      setTab("contents");
+    });
+  });
+
+  view.querySelectorAll("[data-delete-event]").forEach((button) => button.addEventListener("click", () => {
+    const id = button.dataset.deleteEvent;
+    if (window.confirm("Deseja excluir esta atividade do calendário?")) {
+      writeStorage(STORAGE_KEYS.studyEvents, readStorage(STORAGE_KEYS.studyEvents, []).filter((item) => item.id !== id));
+      renderOrganization();
+    }
   }));
-  document.getElementById("calendar-prev").addEventListener("click", () => {
-    state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() - 1, 1);
-    renderOrganization();
-  });
-  document.getElementById("calendar-next").addEventListener("click", () => {
-    state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() + 1, 1);
-    renderOrganization();
-  });
 
   document.getElementById("pomodoro-focus").value = String(readStorage(STORAGE_KEYS.studyTimer, {}).focusMinutes || 25);
   document.getElementById("pomodoro-break").value = String(readStorage(STORAGE_KEYS.studyTimer, {}).breakMinutes || 5);
