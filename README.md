@@ -24,7 +24,7 @@ O extrator percorre as subpastas imediatas como disciplinas e encontra arquivos 
 ## O que está incluído
 
 - **Visão geral:** taxa geral e desempenho por disciplina, assunto e banca, evolução semanal, comparação entre semanas, tempo médio por questão, mapa de calor e previsão suavizada baseada no histórico. O painel identifica quando ainda não há amostra suficiente; a previsão é uma estimativa, não uma garantia.
-- **Conteúdos:** seleção de disciplina dentro da aba, busca e navegação por material, marcação persistente de conteúdos estudados, leitura em coluna central com tipografia responsiva, títulos hierárquicos, sumários e tabelas legíveis, além de controles para reduzir ou ocultar a lista de materiais.
+- **Conteúdos:** seleção de disciplina dentro da aba, busca e navegação por material, marcação persistente de conteúdos estudados, leitura em coluna central com tipografia responsiva, títulos hierárquicos, sumários com números, títulos e páginas alinhados, tabelas responsivas e quebra segura de texto longo, além de controles para reduzir ou ocultar a lista de materiais.
 - **Questões:** treino por disciplina, embaralhamento aleatório das questões com gabarito e alternativas, eliminação de alternativas com tachado e simulados aleatórios configuráveis por disciplina ou pelo banco completo. No modo aleatório, cada resposta é registrada como nova tentativa; os simulados mostram gabarito e solução apenas depois da entrega.
 - **Mapas mentais:** mapa de tópicos construído a partir dos títulos Markdown e uma área para guardar links ou imagens.
 - **Flashcards:** cartões gerados a partir de títulos e trechos de seus materiais; navegação por botões ou teclado.

@@ -631,6 +631,14 @@ function isAnswerLine(text) {
 }
 
 function normalizeContentMarkdown(markdown) {
+  const entityDecoder = document.createElement("textarea");
+  const decodeEntities = (value) => value.replace(
+    /&(?:#(?:x[\da-f]{1,6}|\d{1,7})|[a-z][a-z0-9]+);/gi,
+    (entity) => {
+      entityDecoder.innerHTML = entity;
+      return entityDecoder.value;
+    },
+  );
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const repeatedHeaders = new Map();
   for (const line of lines) {
@@ -662,7 +670,8 @@ function normalizeContentMarkdown(markdown) {
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/<\/?(?:sup|sub|mark|u)\b[^>]*>/gi, "")
     .replace(/&lt;\/?(?:mark|sup|sub|u)\b[^&]*?&gt;/gi, "")
-    .replace(/[ \t]{2,}/g, " ");
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/&(?:#(?:x[\da-f]{1,6}|\d{1,7})|[a-z][a-z0-9]+);/gi, decodeEntities);
 }
 
 function renderStudyCallout(text) {
@@ -681,15 +690,39 @@ function renderStudyCallout(text) {
 }
 
 function parseContentsEntry(cells) {
-  const text = cells.join(" ")
+  const parts = cells.map((cell) => cell
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/[*_`]/g, "")
-    .replace(/\.{2,}|…+/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
-  const match = text.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+(?:(\d{1,4})\s+)?(.+)$/);
-  if (!match) return null;
-  return { number: match[1], page: match[2] || "", title: match[3].trim() };
+    .trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+
+  const numberMatch = parts[0].match(/^(\d+(?:\.\d+)*)(?:[.)])?(?:\s+(.+))?$/);
+  if (!numberMatch) {
+    const text = parts.join(" ").replace(/\.{2,}|…+/g, " ").replace(/\s+/g, " ").trim();
+    const match = text.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+(?:(\d{1,4})\s+)?(.+)$/);
+    return match ? { number: match[1], page: match[2] || "", title: match[3].trim() } : null;
+  }
+
+  const number = numberMatch[1];
+  const titleParts = [numberMatch[2] || "", ...parts.slice(1)];
+  let page = "";
+  if (titleParts.length > 1 && /^\d{1,4}$/.test(titleParts[titleParts.length - 1])) {
+    page = titleParts.pop();
+  }
+  let title = titleParts.join(" ").replace(/\.{2,}|…+/g, " ").replace(/\s+/g, " ").trim();
+  const trailingPage = title.match(/^(.+?)\s+(\d{1,4})$/);
+  if (!page && trailingPage) {
+    title = trailingPage[1];
+    page = trailingPage[2];
+  }
+  const leadingPage = title.match(/^(\d{1,4})\s+(.+)$/);
+  if (!page && leadingPage) {
+    page = leadingPage[1];
+    title = leadingPage[2];
+  }
+  return title ? { number, page, title } : null;
 }
 
 function renderMarkdownTable(tableRows) {
@@ -760,11 +793,14 @@ function renderMarkdown(markdown) {
     html.push(renderMarkdownTable(tableRows));
     tableRows = [];
   };
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+  const tableSeparator = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
     const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
     const list = line.match(/^([-*+]|\d+[.)])\s+(.+)$/);
-    if (line.includes("|") && (/^\|?.+\|.+\|?$/.test(line) || /^\|.+\|$/.test(line))) {
+    const nextLineIsSeparator = tableSeparator.test(lines[index + 1] || "");
+    const isDelimitedTableRow = line.includes("|") && (line.startsWith("|") || line.endsWith("|"));
+    if (line.includes("|") && (isDelimitedTableRow || tableRows.length > 0 || nextLineIsSeparator || tableSeparator.test(line))) {
       flushParagraph(); flushList(); tableRows.push(line); continue;
     }
     flushTable();

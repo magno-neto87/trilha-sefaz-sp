@@ -463,7 +463,7 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   line-height: 1.75;
   margin: 0 auto;
   max-width: 740px;
-  overflow-wrap: normal;
+  overflow-wrap: anywhere;
   padding: 72px 0 96px;
   width: 100%;
 }
@@ -498,7 +498,7 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   width: 48px;
 }
 .reader .markdown-body h1 .chapter-text,
-.reader .markdown-body h2 .section-text { min-width: 0; }
+.reader .markdown-body h2 .section-text { min-width: 0; overflow-wrap: anywhere; }
 .reader .markdown-body h2 {
   align-items: center;
   display: flex;
@@ -558,7 +558,7 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
 }
 .reader .markdown-body table.study-table {
   border-collapse: collapse;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1.5;
   margin: 0 auto;
   max-width: 100%;
@@ -603,8 +603,8 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
 }
 .content-toc li:last-child { border-bottom: 0; }
 .content-toc .toc-number { color: #1e3a8a; font-weight: 700; }
-.content-toc .toc-title { min-width: 0; }
-.content-toc .toc-page { color: #64748b; font-variant-numeric: tabular-nums; }
+.content-toc .toc-title { min-width: 0; overflow-wrap: anywhere; }
+.content-toc .toc-page { color: #64748b; font-variant-numeric: tabular-nums; text-align: right; }
 
 .content-callout {
   border-radius: 14px;
@@ -756,7 +756,7 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
 .question-layout { display: grid; gap: 15px; grid-template-columns: minmax(0,1fr) 230px; }
 .question-card { padding: clamp(18px,3vw,30px); }
 .question-meta { align-items: center; color: #8793a7; display: flex; font-size: 9px; gap: 8px; margin-bottom: 16px; }
-.question-tag { background: linear-gradient(135deg, rgba(47,99,243,.12), rgba(47,99,243,.04)); border-radius: 20px; color: #4a68a7; font-weight: 700; padding: 5px 8px; }
+.question-tag { background: linear-gradient(135deg, rgba(47,99,243,.12), rgba(47,99,243,.04)); border-radius: 20px; color: #4a68a7; flex: 0 1 auto; font-size: 8px; font-weight: 700; max-width: min(100%, 180px); overflow-wrap: anywhere; padding: 5px 8px; }
 .question-card .markdown-body { font-size: 12px; }
 .option-list { display: grid; gap: 8px; margin-top: 18px; }
 .option-button {
