@@ -14,7 +14,7 @@ from typing import Any
 
 
 QUESTION_MARKER = re.compile(
-    r"(?i)(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*(?:n[º°o]\s*)?\d{1,}"
+    r"(?i)(?:\|?[ \t]*(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*\|?)(?:[ \t]*|<br\s*/?>)*(?:n[º°o]\s*)?\d{1,}"
 )
 OPTION_MARKER = re.compile(
     r"^\s*(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*(.*)$",
@@ -46,18 +46,29 @@ PDF_BRANDING = re.compile(
 )
 EXAM_SOURCE = re.compile(
     r"(?i)^\s*(?:19|20)\d{2}\s+(?:FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|"
-    r"CONSULPLAN|FCC|IADES|FADESP|FUNDATEC)\b.*$"
+    r"CONSULPLAN|IADES|FADESP|FUNDATEC|CCV|EXCEL[EÊ]NCIA|INSTITUTO\s+EXCEL[EÊ]NCIA|CESGRANRIO|IDECAN|SELECON)\b.*$"
 )
 NUMBERED_BOLD_LINE = re.compile(
     r"(?i)^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$"
 )
 BRANDED_RUNNING_HEADER = re.compile(
-    r"(?i)^\s*(?:estrat[eé]gia\s*concursos|estrat[eé]giaconcursos)\s+"
-    r"(?:\*\*|__)?\s*\d{1,3}\.\s+.+$"
+    r"(?i)^\s*(?:>|&gt;)?\s*(?:\d+(?:\.\d+)*\s+)?(?:estrat[eé]gia\s*concursos|estrat[eé]giaconcursos)\b.*$"
+)
+TRUNCATED_RUNNING_HEADER = re.compile(
+    r"(?i)^\s*(?:>|&gt;)?\s*(?:\*\*|__)?\s*\d{1,3}\.\s+[^*_\n]+\b(?:usuári|legislaç|administraç)\b[^*_\n]*(?:\*\*|__)?\s*$"
+)
+RUNNING_COURSE_HEADER = re.compile(
+    r"(?i)^\s*(?:>|&gt;)?\s*(?:\*\*|__)?[^*_\n]*\b(?:SEFAZ-SP|Auditor Fiscal)\b.*\b\d{1,3}\s*/\s*\d{1,3}\b.*$"
+)
+QUESTION_INTRO = re.compile(
+    r"(?im)^\s*(?:agora,?\s*)?(?:vamos\s+resolver\s+(?:algumas\s+)?questões|veja\s+como\s+(?:esse\s+assunto\s+|isso\s+)?(?:já\s+)?foi\s+cobrado|questões\s+comentadas|exercícios\s+de\s+fixação|vamos\s+praticar)\s*[:：.]?\s*$"
+)
+PREV_EXAM_LINE = re.compile(
+    r"(?im)^\s*(?:[-*•]\s*)?(?:(?:19|20)\d{2}\b|banca\b|FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|CONSULPLAN|IADES|FADESP|FUNDATEC|CCV|EXCEL[EÊ]NCIA|CESGRANRIO|IDECAN|SELECON)\b"
 )
 BANK_MARKER = re.compile(
-    r"(?im)^\s*(?:(?:19|20)\d{2}\s+)?(?:banca(?:\s+examinadora)?\s*[:：\-]\s*)?"
-    r"(FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|CONSULPLAN|IADES|FADESP|FUNDATEC)\b"
+    r"(?im)(?:^\s*(?:\|+[ \t]*)?(?:(?:19|20)\d{2}\s*)?(?:\|+[ \t]*)?(?:banca(?:\s+examinadora)?\s*[:：\-]\s*)?)"
+    r"\b(FCC|ESAF|CESPE|CEBRASPE|VUNESP|FGV|AOCP|IBFC|QUADRIX|CONSULPLAN|IADES|FADESP|FUNDATEC|CCV(?:\s+UFC)?|EXCEL[EÊ]NCIA|INSTITUTO\s+EXCEL[EÊ]NCIA|CESGRANRIO|IDECAN|SELECON)\b"
 )
 GENERIC_TOPIC = re.compile(
     r"(?i)^(?:(?:lista\s+de\s+)?quest[oõ]es?(?:\s+comentadas?)?|"
@@ -138,6 +149,11 @@ def parse_options(block: str) -> list[dict[str, str]]:
 def normalize_question_layout(block: str) -> str:
     block = re.sub(r"(?i)<br\s*/?>", "\n", block)
     block = re.sub(
+        r"(?im)^\s*(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*\n+\s*(?:[-*]\s+)?",
+        r"- \1) ",
+        block,
+    )
+    block = re.sub(
         r"(?m)(?<!^)(?<!\n)[ \t]+(?=(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-](?:\s|<|$))",
         "\n",
         block,
@@ -168,6 +184,15 @@ def clean_study_metadata(block: str) -> str:
 
 
 def clean_content_artifacts(block: str) -> str:
+    block = re.sub(r"(?m)^\s*[-*•]?\s*[\ufffd\uFFFD]\s*", "- ", block)
+    block = re.sub(r"\s*[\ufffd\uFFFD]\s*", " → ", block)
+
+    def fix_table_row_br(match: re.Match[str]) -> str:
+        return re.sub(r"(?i)<br\s*/?>", " ", match.group(0))
+
+    block = re.sub(r"(?m)^\|[^\n]+\|$", fix_table_row_br, block)
+    block = re.sub(r"(?m)^(\d+(?:\.\d+)*\s+.+\|)$", r"|\1", block)
+
     lines = block.splitlines()
     numbered_headers: dict[str, int] = {}
     for line in lines:
@@ -179,14 +204,16 @@ def clean_content_artifacts(block: str) -> str:
     cleaned: list[str] = []
     for line in lines:
         stripped = line.strip()
-        plain = re.sub(r"[*_`#]", "", stripped).strip()
+        plain = re.sub(r"[*_`#>]", "", stripped).strip()
         markup_placeholder = (
             re.search(r"(?:<|&lt;)\/?(?:mark|u)(?:\s|>|&gt;)", stripped, re.I)
-            and not re.sub(r"[#*_~`\s]", "", re.sub(r"<[^>]*>|&lt;[^&]*?&gt;", "", stripped))
+            and not re.sub(r"[#*_~`\s>]", "", re.sub(r"<[^>]*>|&lt;[^&]*?&gt;", "", stripped))
         )
         numbered_header = NUMBERED_BOLD_LINE.fullmatch(line)
         if (
-            BRANDED_RUNNING_HEADER.fullmatch(line)
+            BRANDED_RUNNING_HEADER.match(stripped)
+            or TRUNCATED_RUNNING_HEADER.match(stripped)
+            or RUNNING_COURSE_HEADER.match(stripped)
             or re.fullmatch(r"(?i)[:：]?\s*<sup>Estrat[eé]gia</sup>\s*Concursos", stripped)
             or PAGE_COUNTER.fullmatch(plain)
             or markup_placeholder
@@ -197,6 +224,7 @@ def clean_content_artifacts(block: str) -> str:
                 re.fullmatch(r"(?i)(?:\*\*|__)?\s*Prof\.?\s+.+?(?:\*\*|__)?", stripped)
                 and len(plain) < 140
             )
+            or re.fullmatch(r"(?i)Estrat[eé]gia\s+\*\*\d{1,3}\.\s+.+?\*\*\s*Concursos", stripped)
         ):
             continue
         cleaned.append(line)
@@ -205,6 +233,7 @@ def clean_content_artifacts(block: str) -> str:
     result = re.sub(r"<!--[\s\S]*?-->", "", result)
     result = re.sub(r"<br\s*/?>", " ", result, flags=re.I)
     result = re.sub(r"</?(?:sup|sub|mark|u)\b[^>]*>", "", result, flags=re.I)
+    result = re.sub(r"(?im)^\s*(?:agora,?\s*)?(?:vamos\s+resolver\s+(?:algumas\s+)?questões|veja\s+como\s+(?:esse\s+assunto\s+|isso\s+)?(?:já\s+)?foi\s+cobrado|vamos\s+praticar)\s*[:：.]?\s*\n+(?=\s*#{1,6}\s+)", "", result)
     return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
@@ -232,7 +261,8 @@ def clean_pdf_artifacts(block: str) -> str:
 
 
 def clean_promotional_content(markdown: str) -> str:
-    markdown = re.sub(r"(?i)<br\s*/?>", "\n", markdown)
+    markdown = re.sub(r"(?im)(?<!\|)<br\s*/?>(?!\|)", "\n", markdown)
+    markdown = re.sub(r"(?i)<br\s*/?>", " ", markdown)
     lines = markdown.splitlines()
     cleaned: list[str] = []
     expecting_url = False
@@ -287,7 +317,11 @@ def question_from_block(
 ) -> dict[str, Any]:
     block = clean_pdf_artifacts(normalize_question_layout(block))
     match = QUESTION_MARKER.search(block)
-    question_number = re.sub(r"\s+", " ", re.sub(r"[*_]", "", match.group(0))).strip() if match else f"Questão {occurrence}"
+    question_number = (
+        re.sub(r"\s+", " ", re.sub(r"[|*_`]", "", match.group(0))).strip()
+        if match else f"Questão {occurrence}"
+    )
+    question_number = re.sub(r"^[|\s]+|[|\s]+$", "", question_number).strip()
     options = parse_options(block)
     solution_match = SOLUTION_MARKER.search(block)
     solution = block[solution_match.end():].strip() if solution_match else ""
@@ -302,6 +336,8 @@ def question_from_block(
     if option_match:
         stem = stem[:option_match.start()]
     stem = re.sub(QUESTION_MARKER, "", stem, count=1).strip()
+    stem = re.sub(r"(?im)^\s*\|[^\n]+\|\s*$", "", stem).strip()
+    stem = re.sub(r"(?im)^\s*[-*•]?\s*(?:19|20)\d{2}\s+.*$", "", stem).strip()
     stem = re.sub(r"(?m)^\s*(?:[-*_]\s*){3,}$", "", stem).strip()
     answer = normalize_answer(block)
     if answer and options and answer not in {option["key"] for option in options}:
@@ -320,6 +356,30 @@ def question_from_block(
     }
 
 
+def find_question_start(markdown: str, match_start: int) -> int:
+    line_start = markdown.rfind("\n", 0, match_start) + 1
+    cursor = line_start
+    candidate_start = line_start
+    while cursor > 0:
+        prev_newline = markdown.rfind("\n", 0, cursor - 1)
+        prev_line = markdown[prev_newline + 1:cursor - 1].strip()
+        if not prev_line:
+            cursor = prev_newline + 1 if prev_newline >= 0 else 0
+            continue
+        is_exam = bool(
+            EXAM_SOURCE.match(prev_line)
+            or PREV_EXAM_LINE.match(prev_line)
+            or BANK_MARKER.match(prev_line)
+            or (prev_line.startswith("|") and ("19" in prev_line or "20" in prev_line or "---" in prev_line or "banca" in prev_line.casefold() or "ufc" in prev_line.casefold()))
+        )
+        if is_exam:
+            cursor = prev_newline + 1 if prev_newline >= 0 else 0
+            candidate_start = cursor
+        else:
+            break
+    return candidate_start
+
+
 def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict[str, Any]]]:
     matches = list(QUESTION_MARKER.finditer(markdown))
     if not matches:
@@ -327,7 +387,7 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
 
     starts: list[int] = []
     for index, match in enumerate(matches):
-        start = markdown.rfind("\n", 0, match.start()) + 1
+        start = find_question_start(markdown, match.start())
         if starts and start <= starts[-1]:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
@@ -340,7 +400,13 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
     if not starts:
         return clean_content_artifacts(clean_study_metadata(remove_page_counters(markdown))), []
 
-    theory_parts = [markdown[:starts[0]]]
+    first_theory = markdown[:starts[0]]
+    first_theory = re.sub(
+        r"(?im)\n\s*(?:agora,?\s*)?(?:vamos\s+resolver\s+(?:algumas\s+)?questões|veja\s+como\s+(?:esse\s+assunto\s+|isso\s+)?(?:já\s+)?foi\s+cobrado|questões\s+comentadas|exercícios\s+de\s+fixação|vamos\s+praticar)\s*[:：.]?\s*$",
+        "",
+        first_theory,
+    )
+    theory_parts = [first_theory]
     headings = list(HEADING.finditer(markdown))
     heading_index = 0
     topic = ""
@@ -388,6 +454,11 @@ def extract_questions(markdown: str, relative_path: str) -> tuple[str, list[dict
         )
         if parsed["statement"] or parsed["options"]:
             questions.append(parsed)
+        theory_tail = re.sub(
+            r"(?im)^\s*(?:agora,?\s*)?(?:vamos\s+resolver\s+(?:algumas\s+)?questões|veja\s+como\s+(?:esse\s+assunto\s+|isso\s+)?(?:já\s+)?foi\s+cobrado|questões\s+comentadas|exercícios\s+de\s+fixação|vamos\s+praticar)\s*[:：.]?\s*\n+",
+            "",
+            theory_tail,
+        )
         theory_parts.append(theory_tail)
     theory = clean_content_artifacts(clean_study_metadata(
         remove_page_counters("\n".join(part.strip() for part in theory_parts if part.strip()))

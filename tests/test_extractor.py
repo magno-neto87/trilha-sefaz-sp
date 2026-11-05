@@ -367,6 +367,105 @@ Gabarito: D
         self.assertEqual(questions[0]["number"], "Questão 1001")
         self.assertEqual(questions[0]["answer"], "A")
 
+    def test_extracts_question_with_table_header_and_multiline_options(self):
+        source = """Teoria anterior.
+
+||2013|CCV UFC|Universidade Federal do Ceará|
+|---|---|---|---|
+|**Questão**<br>4001998029||||
+||Analista de Tecnologia|da Informação|- Segurança da Informação (UFC)|
+
+Sobre Esteganografia é correto afirmar que:
+
+- A)
+
+É uma categoria de algoritmo criptográfico simétrico.
+
+- B)
+
+É a análise de desempenho dos algoritmos criptográficos.
+
+- C)
+
+É uma técnica para ocultar uma mensagem dentro de outra.
+
+- D)
+
+É um algoritmo matemático.
+
+- E)
+
+- É uma técnica para decifrar o texto cifrado.
+
+###### **Solução:**
+Gabarito: C) correta.
+Explicação sobre esteganografia.
+Gabarito: C
+
+## Próximo tópico
+Teoria seguinte.
+"""
+        theory, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(len(questions), 1)
+        q = questions[0]
+        self.assertIn("4001998029", q["number"])
+        self.assertEqual(len(q["options"]), 5)
+        self.assertEqual(q["answer"], "C")
+        self.assertIn("CCV UFC", q["bank"])
+        self.assertNotIn("4001998029", theory)
+        self.assertNotIn("Sobre Esteganografia", theory)
+        self.assertNotIn("CCV UFC", theory)
+        self.assertIn("Teoria anterior.", theory)
+        self.assertIn("Teoria seguinte.", theory)
+
+    def test_removes_orphan_question_intro_and_preceding_exam_line_from_theory(self):
+        source = """Teoria 1.3
+
+Agora, vamos resolver algumas questões:
+
+- 2018 Instituto EXCELÊNCIA Prefeitura Municipal de Barra Velha (SC)
+
+- **Questão** 283800999 Tesoureiro (Pref Barra Velha/SC)
+
+A contabilidade pode ser definida como:
+A) Social
+B) Exata
+###### **Solução:**
+Gabarito: A
+Explicação.
+
+###### **1.4 Campo de Aplicação da Contabilidade - Teoria**
+Conteúdo da seção 1.4
+"""
+        theory, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(len(questions), 1)
+        self.assertNotIn("Agora, vamos resolver algumas questões:", theory)
+        self.assertNotIn("Barra Velha", theory)
+        self.assertIn("Teoria 1.3", theory)
+        self.assertIn("1.4 Campo de Aplicação da Contabilidade - Teoria", theory)
+
+    def test_removes_running_header_with_truncated_text(self):
+        source = """> 0.0 EstratégiaConcursos 1. Contabilidade Geral Contabilidade conceito, objeto, objetivos, campo de atuação e usuári
+**Contabilidade Geral para SEFAZ-SP (Auditor Fiscal) - Prof. Júlio Cardozo 10/91**
+Texto legítimo preservado.
+"""
+        cleaned = clean_content_artifacts(source)
+        self.assertNotIn("EstratégiaConcursos", cleaned)
+        self.assertNotIn("usuári", cleaned)
+        self.assertNotIn("10/91", cleaned)
+        self.assertIn("Texto legítimo preservado.", cleaned)
+
+    def test_replaces_unicode_replacement_characters(self):
+        source = """\ufffd Item de lista com marcador corrompido
+Finalidade \ufffd Fornecer informações
+Escrituração \ufffd Técnica contábil
+"""
+        cleaned = clean_content_artifacts(source)
+        self.assertNotIn("\ufffd", cleaned)
+        self.assertIn("- Item de lista", cleaned)
+        self.assertIn("Finalidade → Fornecer informações", cleaned)
+        self.assertIn("Escrituração → Técnica contábil", cleaned)
+
 
 if __name__ == "__main__":
     unittest.main()

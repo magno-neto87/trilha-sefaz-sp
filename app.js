@@ -20,8 +20,6 @@ const STORAGE_KEYS = {
   pomodoroSessions: "trilha-pomodoro-sessions-v1",
   materialReviews: "trilha-material-reviews-v1",
   readingPositions: "trilha-reading-positions-v1",
-  contentDrawings: "trilha-content-drawings-v1",
-  contentHighlights: "trilha-content-highlights-v1",
 };
 const state = {
   manifest: null,
@@ -35,9 +33,6 @@ const state = {
   questionMaterialId: "all",
   questionStatusFilter: "all",
   selectedAnswer: null,
-  drawingTool: "read",
-  drawingColor: "#1e293b",
-  drawingSize: 4,
   randomQuestionIds: null,
   randomAnsweredIds: new Set(),
   questionBankCache: new Map(),
@@ -621,16 +616,34 @@ function renderStudyHeading(level, text) {
   if (isAnswerLine(plainText)) {
     return `<p class="content-answer"><strong>${inlineMarkdown(cleanText)}</strong></p>`;
   }
+
+  // Detect exam question markers (e.g. "1. (FGV/PC-AM/Investigador...)", "(FGV/...)")
+  const isExamQuestionHeading = /^\(?\d+[.)]?\s*\([A-Z0-9/ -]+\)/i.test(plainText)
+    || /^\([A-Z0-9/ -]+\)/.test(plainText)
+    || /^\d+[.)]?\s*(?:quest[aã]o|banca\b)/i.test(plainText);
+
   const numberedHeading = plainText.match(/^(\d+(?:\.\d+)*)(?:\s*[:.)-]\s*|\s+)(.+)$/);
+  if (isExamQuestionHeading && numberedHeading) {
+    const [, number, headingText] = numberedHeading;
+    return `<div class="question-exam-heading"><span class="question-exam-badge">${number}</span><span class="question-exam-title">${inlineMarkdown(headingText)}</span></div>`;
+  }
+  if (isExamQuestionHeading) {
+    return `<div class="question-exam-heading"><span class="question-exam-title">${inlineMarkdown(cleanText)}</span></div>`;
+  }
+
   if (numberedHeading) {
     const [, number, headingText] = numberedHeading;
     const depth = number.split(".").length;
-    if (depth === 1) {
+    if (depth === 1 && level < 3) {
       return `<h1 class="chapter-heading"><span class="chapter-number">${number}</span><span class="chapter-text">${inlineMarkdown(headingText)}</span></h1>`;
     }
-    return `<h2 class="section-heading"><span class="section-badge">${number}</span><span class="section-text">${inlineMarkdown(headingText)}</span></h2>`;
+    if (depth > 1 && level < 4) {
+      return `<h2 class="section-heading"><span class="section-badge">${number}</span><span class="section-text">${inlineMarkdown(headingText)}</span></h2>`;
+    }
+    const semanticLevel = Math.min(Math.max(level, 2), 4);
+    return `<h${semanticLevel}><span class="section-badge">${number}</span> <span class="section-text">${inlineMarkdown(headingText)}</span></h${semanticLevel}>`;
   }
-  const semanticLevel = Math.min(level, 3);
+  const semanticLevel = Math.min(level, 4);
   return `<h${semanticLevel}>${inlineMarkdown(cleanText)}</h${semanticLevel}>`;
 }
 
@@ -648,7 +661,16 @@ function normalizeContentMarkdown(markdown) {
       return entityDecoder.value;
     },
   );
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  // Replace unicode replacement characters (\ufffd):
+  let sanitized = markdown.replace(/\r\n?/g, "\n");
+  sanitized = sanitized.replace(/^([ \t]*[-*•]?[ \t]*)[\ufffd\uFFFD][ \t]*/gm, "- ");
+  sanitized = sanitized.replace(/[ \t]*[\ufffd\uFFFD][ \t]*/g, " → ");
+
+  // Prevent table rows from breaking on <br>
+  sanitized = sanitized.replace(/^\|[^\n]+\|$/gm, (row) => row.replace(/<br\s*\/?>/gi, " "));
+  sanitized = sanitized.replace(/^(\d+(?:\.\d+)*\s+.+\|)$/gm, "|$1");
+
+  const lines = sanitized.split("\n");
   const repeatedHeaders = new Map();
   for (const line of lines) {
     const match = line.match(/^\s*(?:\*\*|__)\s*(\d{1,3}\.\s+.+?)\s*(?:\*\*|__)\s*$/);
@@ -664,13 +686,16 @@ function normalizeContentMarkdown(markdown) {
     const markupPlaceholder = /(?:<|&lt;)\/?(?:mark|u)(?:\s|>|&gt;)/i.test(trimmed)
       && !trimmed.replace(/<[^>]*>|&lt;[^&]*?&gt;/gi, "").replace(/[#*_~`\s]/g, "");
     return !(
-      /^(?:estratégia\s*concursos|estratégiaconcursos)\s+(?:\*\*|__)?\s*\d{1,3}\.\s+/i.test(trimmed)
+      /^(?:>|&gt;)?\s*(?:\d+(?:\.\d+)*\s+)?(?:estratégia\s*concursos|estratégiaconcursos)\b/i.test(trimmed)
       || /^[:：]?\s*<sup>Estrat[eé]gia<\/sup>\s*Concursos$/i.test(trimmed)
       || /^\d{1,3}\s*\/\s*\d{1,3}$/.test(plain)
       || markupPlaceholder
       || (numberedHeader && repeatedHeaders.get(numberedHeader[1].replace(/\s+/g, " ").trim().toLocaleLowerCase("pt-BR")) > 1)
       || (/^(?:\*\*|__)?\s*Prof\.?\s+.+?(?:\*\*|__)?$/i.test(trimmed) && plain.length < 140)
-      || (/^(?:\*\*|__)?[^*_]*\b(?:SEFAZ-SP|Auditor Fiscal)\b[^*_]*\bProf\.?\s+.+?(?:\*\*|__)?$/i.test(trimmed))
+      || (/^(?:>|&gt;)?\s*(?:\*\*|__)?[^*_]*\b(?:SEFAZ-SP|Auditor Fiscal)\b.*\d{1,3}\s*\/\s*\d{1,3}/i.test(trimmed))
+      || (/^(?:>|&gt;)?\s*(?:\*\*|__)?[^*_]*\b(?:SEFAZ-SP|Auditor Fiscal)\b[^*_]*\bProf\.?\s+.+?(?:\*\*|__)?$/i.test(trimmed))
+      || (/^(?:>|&gt;)?\s*(?:\*\*|__)?\s*\d{1,3}\.\s+[^*_\n]+\b(?:usuári|legislaç|administraç)\b(?:\*\*|__)?$/i.test(trimmed))
+      || (/^(?:agora,?\s*)?(?:vamos\s+resolver\s+(?:algumas\s+)?questões|veja\s+como\s+(?:esse\s+assunto\s+|isso\s+)?(?:já\s+)?foi\s+cobrado)\s*[:：.]?$/i.test(trimmed))
     );
   });
   return contentLines.join("\n")
@@ -701,37 +726,40 @@ function renderStudyCallout(text) {
 function parseContentsEntry(cells) {
   const parts = cells.map((cell) => cell
     .replace(/<br\s*\/?>/gi, " ")
-    .replace(/[*_`]/g, "")
+    .replace(/[*_`|]/g, "")
+    .replace(/\.{2,}|…+/g, " ")
     .replace(/\s+/g, " ")
     .trim())
     .filter(Boolean);
   if (!parts.length) return null;
 
-  const numberMatch = parts[0].match(/^(\d+(?:\.\d+)*)(?:[.)])?(?:\s+(.+))?$/);
-  if (!numberMatch) {
-    const text = parts.join(" ").replace(/\.{2,}|…+/g, " ").replace(/\s+/g, " ").trim();
-    const match = text.match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+(?:(\d{1,4})\s+)?(.+)$/);
-    return match ? { number: match[1], page: match[2] || "", title: match[3].trim() } : null;
+  const fullText = parts.join(" ").replace(/\s+/g, " ").trim();
+  // Match section numbers like 1.1, 1.2.1, 14.1
+  const numberMatch = fullText.match(/^(\d+(?:\.\d+)+)(?:[.)])?\s+(.+)$/);
+  if (numberMatch) {
+    return extractTitleAndPage(numberMatch[1], numberMatch[2]);
   }
+  const singleMatch = fullText.match(/^(\d+)(?:[.)])\s+(.+)$/);
+  if (singleMatch) {
+    return extractTitleAndPage(singleMatch[1], singleMatch[2]);
+  }
+  return null;
+}
 
-  const number = numberMatch[1];
-  const titleParts = [numberMatch[2] || "", ...parts.slice(1)];
+function extractTitleAndPage(number, rest) {
+  let text = rest.replace(/\.{2,}|…+/g, " ").replace(/\s+/g, " ").trim();
   let page = "";
-  if (titleParts.length > 1 && /^\d{1,4}$/.test(titleParts[titleParts.length - 1])) {
-    page = titleParts.pop();
-  }
-  let title = titleParts.join(" ").replace(/\.{2,}|…+/g, " ").replace(/\s+/g, " ").trim();
-  const trailingPage = title.match(/^(.+?)\s+(\d{1,4})$/);
-  if (!page && trailingPage) {
-    title = trailingPage[1];
-    page = trailingPage[2];
-  }
-  const leadingPage = title.match(/^(\d{1,4})\s+(.+)$/);
-  if (!page && leadingPage) {
+  const leadingPage = text.match(/^(\d{1,4})\s+(.+)$/);
+  const trailingPage = text.match(/^(.+?)\s+(\d{1,4})$/);
+  if (leadingPage && !/^\d+$/.test(leadingPage[2])) {
     page = leadingPage[1];
-    title = leadingPage[2];
+    text = leadingPage[2];
+  } else if (trailingPage) {
+    page = trailingPage[2];
+    text = trailingPage[1];
   }
-  return title ? { number, page, title } : null;
+  text = text.replace(/^[|\s-]+|[|\s-]+$/g, "").trim();
+  return text ? { number, page, title: text } : null;
 }
 
 function renderMarkdownTable(tableRows) {
@@ -740,12 +768,16 @@ function renderMarkdownTable(tableRows) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
   const parsedRows = rows.map(cells);
   if (parsedRows.length === 1) {
-    const text = parsedRows[0].filter(Boolean).join(" ");
+    const singleToc = parseContentsEntry(parsedRows[0]);
+    if (singleToc) {
+      return `<nav class="content-toc" aria-label="Sumário"><ul><li><span class="toc-number">${inlineMarkdown(singleToc.number)}</span><span class="toc-title">${inlineMarkdown(singleToc.title)}</span>${singleToc.page ? `<span class="toc-page">${inlineMarkdown(singleToc.page)}</span>` : ""}</li></ul></nav>`;
+    }
+    const text = parsedRows[0].filter(Boolean).join(" ").replace(/^[|\s-]+|[|\s-]+$/g, "");
     return `<p class="table-continuation">${inlineMarkdown(text)}</p>`;
   }
   const tocEntries = parsedRows.map(parseContentsEntry);
   const matchingEntries = tocEntries.filter(Boolean);
-  if (matchingEntries.length >= 2 && matchingEntries.length / parsedRows.length >= 0.6) {
+  if (matchingEntries.length >= 2 && matchingEntries.length / parsedRows.length >= 0.5) {
     return `<nav class="content-toc" aria-label="Sumário"><ul>${matchingEntries.map((entry) => (
       `<li><span class="toc-number">${inlineMarkdown(entry.number)}</span><span class="toc-title">${inlineMarkdown(entry.title)}</span>${entry.page ? `<span class="toc-page">${inlineMarkdown(entry.page)}</span>` : ""}</li>`
     )).join("")}</ul></nav>`;
@@ -1687,19 +1719,6 @@ function formatDateTimePtBr(date) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} às ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function hexToRgba(hex, alpha = 0.5) {
-  if (typeof hex !== "string") return `rgba(250, 204, 21, ${alpha})`;
-  if (hex.startsWith("rgba")) return hex;
-  let c = hex.replace("#", "");
-  if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
-  const num = parseInt(c, 16);
-  if (isNaN(num)) return `rgba(250, 204, 21, ${alpha})`;
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function getReadingBookmark(materialId) {
   const positions = readStorage(STORAGE_KEYS.readingPositions, {});
   return positions && typeof positions === "object" ? positions[materialId] || null : null;
@@ -1710,16 +1729,30 @@ function getLastGlobalBookmark() {
   return positions && typeof positions === "object" ? positions._last || null : null;
 }
 
+function calculateReadingProgress() {
+  const doc = document.documentElement;
+  const body = document.body;
+  const scrollTop = window.scrollY || doc.scrollTop || body.scrollTop || 0;
+  const scrollHeight = Math.max(doc.scrollHeight, body.scrollHeight);
+  const clientHeight = window.innerHeight || doc.clientHeight || 0;
+  const maxScroll = scrollHeight - clientHeight;
+  if (maxScroll <= 0) return 100;
+  return Math.min(100, Math.max(0, Math.round((scrollTop / maxScroll) * 100)));
+}
+
 function saveReadingBookmark(material, subject) {
   const positions = readStorage(STORAGE_KEYS.readingPositions, {});
   const now = new Date();
   const formatted = formatDateTimePtBr(now);
+  const currentScrollY = Math.max(0, Math.round(window.scrollY));
+  const percentage = calculateReadingProgress();
   const bookmark = {
     materialId: material.id,
     materialTitle: material.title,
     subjectId: subject.id,
     subjectName: subject.name,
-    scrollY: Math.max(0, Math.round(window.scrollY)),
+    scrollY: currentScrollY,
+    percentage,
     savedAt: now.toISOString(),
     savedAtFormatted: formatted,
   };
@@ -1727,295 +1760,6 @@ function saveReadingBookmark(material, subject) {
   positions._last = bookmark;
   writeStorage(STORAGE_KEYS.readingPositions, positions);
   return bookmark;
-}
-
-function applyTextHighlightsToMarkdown(materialId) {
-  const container = document.getElementById("reader-markdown");
-  if (!container) return;
-  const highlightsMap = readStorage(STORAGE_KEYS.contentHighlights, {});
-  const highlights = Array.isArray(highlightsMap[materialId]) ? highlightsMap[materialId] : [];
-  if (!highlights.length) return;
-
-  for (const item of highlights) {
-    if (!item.text || item.text.trim().length < 2) continue;
-    highlightTextInElement(container, item);
-  }
-
-  container.querySelectorAll(".study-text-highlight").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const id = el.dataset.highlightId;
-      if (window.confirm(`Remover marcação do trecho: "${el.textContent.slice(0, 35)}..."?`)) {
-        const allHighlights = readStorage(STORAGE_KEYS.contentHighlights, {});
-        allHighlights[materialId] = (allHighlights[materialId] || []).filter((h) => h.id !== id);
-        writeStorage(STORAGE_KEYS.contentHighlights, allHighlights);
-        const parent = el.parentNode;
-        while (el.firstChild) parent.insertBefore(el.firstChild, el);
-        parent.removeChild(el);
-      }
-    });
-  });
-}
-
-function highlightTextInElement(root, highlight) {
-  const targetText = highlight.text.trim();
-  if (!targetText) return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-  const textNodes = [];
-  let node;
-  while ((node = walker.nextNode())) {
-    if (node.parentElement && node.parentElement.closest(".study-text-highlight")) continue;
-    textNodes.push(node);
-  }
-
-  for (const textNode of textNodes) {
-    const content = textNode.nodeValue;
-    const index = content.indexOf(targetText);
-    if (index !== -1) {
-      const mark = document.createElement("mark");
-      mark.className = "study-text-highlight";
-      mark.dataset.highlightId = highlight.id;
-      mark.style.backgroundColor = highlight.color || "#fef08a";
-      mark.title = "Clique para remover este destaque";
-
-      const before = content.substring(0, index);
-      const matched = content.substring(index, index + targetText.length);
-      const after = content.substring(index + targetText.length);
-
-      mark.textContent = matched;
-      const frag = document.createDocumentFragment();
-      if (before) frag.appendChild(document.createTextNode(before));
-      frag.appendChild(mark);
-      if (after) frag.appendChild(document.createTextNode(after));
-
-      textNode.parentNode.replaceChild(frag, textNode);
-      break;
-    }
-  }
-}
-
-function redrawCanvas(canvas, strokes) {
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!Array.isArray(strokes)) return;
-  for (const stroke of strokes) {
-    if (!stroke.points || stroke.points.length < 2) continue;
-    ctx.beginPath();
-    if (stroke.tool === "highlighter") {
-      ctx.globalCompositeOperation = "multiply";
-      ctx.strokeStyle = hexToRgba(stroke.color, 0.45);
-      ctx.lineWidth = (stroke.size || 4) * 3.5;
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = stroke.color || "#1e293b";
-      ctx.lineWidth = stroke.size || 3;
-    }
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-    for (let i = 1; i < stroke.points.length; i++) {
-      ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-    }
-    ctx.stroke();
-  }
-  ctx.globalCompositeOperation = "source-over";
-}
-
-function initReaderCanvas(materialId) {
-  const wrap = document.getElementById("reader-content-wrap");
-  const canvas = document.getElementById("reader-canvas");
-  if (!wrap || !canvas) return;
-
-  const drawingsMap = readStorage(STORAGE_KEYS.contentDrawings, {});
-  let strokes = Array.isArray(drawingsMap[materialId]) ? [...drawingsMap[materialId]] : [];
-
-  const resize = () => {
-    const width = wrap.clientWidth;
-    const height = wrap.clientHeight;
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-      redrawCanvas(canvas, strokes);
-    }
-  };
-  resize();
-
-  const resizeObserver = new ResizeObserver(() => resize());
-  resizeObserver.observe(wrap);
-
-  const saveStrokes = () => {
-    const currentMap = readStorage(STORAGE_KEYS.contentDrawings, {});
-    currentMap[materialId] = strokes;
-    writeStorage(STORAGE_KEYS.contentDrawings, currentMap);
-    const pill = document.getElementById("tool-save-pill");
-    if (pill) {
-      pill.textContent = "✓ Anotações salvas";
-      pill.style.opacity = "1";
-    }
-  };
-
-  const updateCanvasInteractivity = () => {
-    const isInteractive = state.drawingTool !== "read";
-    canvas.classList.toggle("interactive", isInteractive);
-    const palette = document.getElementById("tools-palette");
-    if (palette) palette.hidden = !isInteractive;
-  };
-  updateCanvasInteractivity();
-
-  document.querySelectorAll("[data-tool]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.drawingTool = btn.dataset.tool;
-      document.querySelectorAll("[data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === state.drawingTool));
-      updateCanvasInteractivity();
-    });
-  });
-
-  document.querySelectorAll(".color-dot").forEach((dot) => {
-    dot.addEventListener("click", () => {
-      state.drawingColor = dot.dataset.color;
-      document.querySelectorAll(".color-dot").forEach((d) => d.classList.toggle("active", d.dataset.color === state.drawingColor));
-    });
-  });
-
-  document.querySelectorAll(".size-btn").forEach((sBtn) => {
-    sBtn.addEventListener("click", () => {
-      state.drawingSize = Number(sBtn.dataset.size);
-      document.querySelectorAll(".size-btn").forEach((s) => s.classList.toggle("active", Number(s.dataset.size) === state.drawingSize));
-    });
-  });
-
-  const undoBtn = document.getElementById("tool-undo");
-  if (undoBtn) {
-    undoBtn.addEventListener("click", () => {
-      if (strokes.length) {
-        strokes.pop();
-        redrawCanvas(canvas, strokes);
-        saveStrokes();
-      }
-    });
-  }
-
-  const clearBtn = document.getElementById("tool-clear");
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      if (!strokes.length) return;
-      if (window.confirm("Deseja apagar todos os desenhos e anotações deste material?")) {
-        strokes = [];
-        redrawCanvas(canvas, strokes);
-        saveStrokes();
-      }
-    });
-  }
-
-  const hlBtn = document.getElementById("highlight-selected-text-btn");
-  if (hlBtn) {
-    hlBtn.addEventListener("click", () => {
-      const selection = window.getSelection();
-      const text = selection ? selection.toString().trim() : "";
-      if (!text || text.length < 2) {
-        showNotice("Selecione um trecho de texto no conteúdo antes de clicar em Destacar seleção.");
-        return;
-      }
-      const highlightsMap = readStorage(STORAGE_KEYS.contentHighlights, {});
-      const list = Array.isArray(highlightsMap[materialId]) ? highlightsMap[materialId] : [];
-      const color = state.drawingColor === "#1e293b" ? "#fef08a" : (state.drawingColor === "#facc15" ? "#fef08a" : hexToRgba(state.drawingColor, 0.35));
-      const highlightId = `hl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      list.push({ id: highlightId, text, color });
-      highlightsMap[materialId] = list;
-      writeStorage(STORAGE_KEYS.contentHighlights, highlightsMap);
-      selection.removeAllRanges();
-      applyTextHighlightsToMarkdown(materialId);
-      showNotice("Trecho destacado e salvo!");
-    });
-  }
-
-  let isDrawing = false;
-  let currentStroke = null;
-
-  const getCanvasCoords = (e) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: Math.round(e.clientX - rect.left),
-      y: Math.round(e.clientY - rect.top),
-    };
-  };
-
-  const eraseAt = (x, y, radius = 18) => {
-    const initialCount = strokes.length;
-    strokes = strokes.filter((stroke) => {
-      if (!stroke.points) return false;
-      return !stroke.points.some((pt) => Math.hypot(pt.x - x, pt.y - y) <= radius);
-    });
-    if (strokes.length !== initialCount) {
-      redrawCanvas(canvas, strokes);
-    }
-  };
-
-  canvas.addEventListener("pointerdown", (e) => {
-    if (state.drawingTool === "read") return;
-    canvas.setPointerCapture(e.pointerId);
-    isDrawing = true;
-    const { x, y } = getCanvasCoords(e);
-    if (state.drawingTool === "eraser") {
-      eraseAt(x, y);
-      return;
-    }
-    currentStroke = {
-      tool: state.drawingTool,
-      color: state.drawingColor,
-      size: state.drawingSize,
-      points: [{ x, y }],
-    };
-  });
-
-  canvas.addEventListener("pointermove", (e) => {
-    if (!isDrawing) return;
-    const { x, y } = getCanvasCoords(e);
-    if (state.drawingTool === "eraser") {
-      eraseAt(x, y);
-      return;
-    }
-    if (!currentStroke) return;
-    const pts = currentStroke.points;
-    const last = pts[pts.length - 1];
-    if (Math.hypot(x - last.x, y - last.y) >= 2.5) {
-      pts.push({ x, y });
-      const ctx = canvas.getContext("2d");
-      ctx.beginPath();
-      if (currentStroke.tool === "highlighter") {
-        ctx.globalCompositeOperation = "multiply";
-        ctx.strokeStyle = hexToRgba(currentStroke.color, 0.45);
-        ctx.lineWidth = currentStroke.size * 3.5;
-      } else {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.strokeStyle = currentStroke.color;
-        ctx.lineWidth = currentStroke.size;
-      }
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.moveTo(last.x, last.y);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.globalCompositeOperation = "source-over";
-    }
-  });
-
-  const finishDrawing = () => {
-    if (!isDrawing) return;
-    isDrawing = false;
-    if (state.drawingTool === "eraser") {
-      saveStrokes();
-      return;
-    }
-    if (currentStroke && currentStroke.points.length > 1) {
-      strokes.push(currentStroke);
-      saveStrokes();
-    }
-    currentStroke = null;
-  };
-
-  canvas.addEventListener("pointerup", finishDrawing);
-  canvas.addEventListener("pointercancel", finishDrawing);
 }
 
 async function renderContents() {
@@ -2035,6 +1779,13 @@ async function renderContents() {
     const currentBookmark = getReadingBookmark(activeMaterial.id);
     const lastGlobalBookmark = getLastGlobalBookmark();
 
+    // Limpar estado legado de coluna colapsada para evitar coluna vazia
+    const listView = readStorage(STORAGE_KEYS.contentListView, {});
+    if (listView.collapsed !== undefined) {
+      delete listView.collapsed;
+      writeStorage(STORAGE_KEYS.contentListView, listView);
+    }
+
     view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">BIBLIOTECA DE MATERIAIS</p><h1>Conteúdos</h1><p class="page-subtitle">${escapeHtml(data.subject.name)} · ${data.materials.length} materiais para estudar no seu ritmo.</p></div></div>
       ${lastGlobalBookmark && lastGlobalBookmark.materialId !== activeMaterial.id ? `
         <div class="last-reading-banner">
@@ -2050,102 +1801,94 @@ async function renderContents() {
         <select class="select-control" id="content-subject" aria-label="Selecionar disciplina para estudar">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select>
         <div class="content-completion" aria-live="polite"><strong id="completed-count">${completedCount} / ${data.materials.length}</strong><span>materiais estudados</span></div>
       </div>
-      <div class="content-layout"><aside class="card content-list" id="content-material-list"><div class="list-header"><div class="list-header-title"><h2>Materiais da disciplina</h2><div class="list-header-actions"><button class="list-view-button" id="collapse-material-list" type="button" aria-controls="material-list" aria-expanded="true" title="Reduzir lista">−</button><button class="list-view-button" id="hide-material-list" type="button" aria-controls="content-material-list" title="Ocultar lista" aria-label="Ocultar lista de materiais">×</button></div></div><input class="search-input" id="material-search" placeholder="Buscar conteúdo..." aria-label="Buscar conteúdo"></div><div class="material-list" id="material-list"></div></aside>
-      <article class="card reader"><button class="show-material-list" id="show-material-list" type="button" hidden>☷ Mostrar materiais</button><div class="reader-head"><div class="reader-title"><h2>${escapeHtml(activeMaterial.title)}</h2><div class="reader-meta">${escapeHtml(data.subject.name)} · ${activeMaterial.questions.length} questões associadas</div></div>
-        <label class="material-study-toggle ${completed[activeMaterial.id] ? "completed" : ""}" id="material-study-label" for="material-studied"><input id="material-studied" type="checkbox" ${completed[activeMaterial.id] ? "checked" : ""}><span id="material-study-state">${completed[activeMaterial.id] ? "Conteúdo estudado" : "Marcar como estudado"}</span></label>
+      <div class="content-layout">
+        <aside class="card content-list" id="content-material-list">
+          <div class="list-header">
+            <div class="list-header-title">
+              <h2>Materiais da disciplina</h2>
+              <div class="list-header-actions">
+                <button class="list-view-button" id="hide-material-list" type="button" aria-controls="content-material-list" title="Ocultar lista" aria-label="Ocultar lista de materiais">×</button>
+              </div>
+            </div>
+            <input class="search-input" id="material-search" placeholder="Buscar conteúdo..." aria-label="Buscar conteúdo">
+          </div>
+          <div class="material-list" id="material-list"></div>
+        </aside>
+        <article class="card reader">
+          <button class="show-material-list" id="show-material-list" type="button" hidden>☷ Mostrar materiais</button>
+          <div class="reader-head">
+            <div class="reader-title">
+              <h2>${escapeHtml(activeMaterial.title)}</h2>
+              <div class="reader-meta">${escapeHtml(data.subject.name)} · ${activeMaterial.questions.length} questões associadas</div>
+            </div>
+            <label class="material-study-toggle ${completed[activeMaterial.id] ? "completed" : ""}" id="material-study-label" for="material-studied">
+              <input id="material-studied" type="checkbox" ${completed[activeMaterial.id] ? "checked" : ""}>
+              <span id="material-study-state">${completed[activeMaterial.id] ? "Conteúdo estudado" : "Marcar como estudado"}</span>
+            </label>
+          </div>
+
+          ${currentBookmark ? `
+            <div class="reader-bookmark-banner" id="reader-bookmark-banner">
+              <div class="reader-bookmark-banner-info">
+                <span class="bookmark-icon">📍</span>
+                <span>Ponto gravado neste material: <strong>${currentBookmark.percentage ?? 0}% lido</strong> <small>(${escapeHtml(currentBookmark.savedAtFormatted)})</small></span>
+              </div>
+              <button class="button bookmark-return-btn" id="banner-return-btn" type="button">
+                Voltar para onde parei →
+              </button>
+            </div>
+          ` : ""}
+
+          <div class="markdown-body" id="reader-markdown">${renderMarkdown(activeMaterial.content)}</div>
+        </article>
       </div>
 
-      <div class="reader-bookmark-section">
-        <button class="button secondary bookmark-btn" id="save-reading-btn" type="button" title="Gravar a data e hora do ponto exato onde você parou de ler">
-          📌 Gravar onde parei
-        </button>
-        ${currentBookmark ? `
-          <button class="button bookmark-return-btn" id="return-reading-btn" type="button" title="Voltar ao ponto gravado em ${escapeHtml(currentBookmark.savedAtFormatted)}">
-            📍 Voltar de onde parei <small>(${escapeHtml(currentBookmark.savedAtFormatted)})</small>
+      <aside class="reading-companion-dock" id="reading-companion-dock" aria-label="Acompanhamento de leitura">
+        <div class="companion-dock-content">
+          <div class="companion-progress-badge">
+            <span class="companion-icon">📖</span>
+            <span class="companion-progress-text" id="reading-progress-pill">${calculateReadingProgress()}% lido</span>
+          </div>
+          <div class="companion-divider"></div>
+          <button class="companion-btn companion-save-btn" id="dock-save-btn" type="button" title="Gravar o ponto exato da sua leitura agora com data e hora">
+            <span class="btn-icon">📌</span>
+            <span class="btn-text">Gravar onde parei</span>
           </button>
-        ` : `
-          <span class="bookmark-note" id="bookmark-empty-note">Nenhum ponto gravado neste material ainda.</span>
-        `}
-        <span class="bookmark-toast" id="bookmark-toast" hidden></span>
-      </div>
-
-      <div class="reader-tools-panel" id="reader-tools-panel">
-        <div class="tools-bar-main">
-          <div class="tools-mode-group">
-            <button class="tool-btn ${state.drawingTool === "read" ? "active" : ""}" data-tool="read" type="button" title="Modo Leitura: rolagem e seleção normais">
-              <span class="tool-icon">👁️</span> Leitura
-            </button>
-            <button class="tool-btn ${state.drawingTool === "pen" ? "active" : ""}" data-tool="pen" type="button" title="Caneta livre: escreva ou desenhe na tela">
-              <span class="tool-icon">✍️</span> Caneta
-            </button>
-            <button class="tool-btn ${state.drawingTool === "highlighter" ? "active" : ""}" data-tool="highlighter" type="button" title="Marca-texto livre: faça traços translúcidos sobre o texto">
-              <span class="tool-icon">🖍️</span> Marca-texto
-            </button>
-            <button class="tool-btn" id="highlight-selected-text-btn" type="button" title="Destacar o texto selecionado">
-              <span class="tool-icon">🏷️</span> Destacar seleção
-            </button>
-            <button class="tool-btn ${state.drawingTool === "eraser" ? "active" : ""}" data-tool="eraser" type="button" title="Borracha: clique ou arraste para apagar traços">
-              <span class="tool-icon">🧹</span> Borracha
-            </button>
-          </div>
-          <div class="tools-palette-group" id="tools-palette" ${state.drawingTool === "read" ? "hidden" : ""}>
-            <div class="color-picker" aria-label="Cores">
-              <button class="color-dot ${state.drawingColor === "#1e293b" ? "active" : ""}" data-color="#1e293b" style="background:#1e293b" title="Preto"></button>
-              <button class="color-dot ${state.drawingColor === "#2563eb" ? "active" : ""}" data-color="#2563eb" style="background:#2563eb" title="Azul"></button>
-              <button class="color-dot ${state.drawingColor === "#dc2626" ? "active" : ""}" data-color="#dc2626" style="background:#dc2626" title="Vermelho"></button>
-              <button class="color-dot ${state.drawingColor === "#facc15" ? "active" : ""}" data-color="#facc15" style="background:#facc15" title="Amarelo"></button>
-              <button class="color-dot ${state.drawingColor === "#22c55e" ? "active" : ""}" data-color="#22c55e" style="background:#22c55e" title="Verde"></button>
-            </div>
-            <div class="size-picker" aria-label="Espessura">
-              <button class="size-btn ${state.drawingSize === 2 ? "active" : ""}" data-size="2" title="Fino">Fino</button>
-              <button class="size-btn ${state.drawingSize === 4 ? "active" : ""}" data-size="4" title="Médio">Médio</button>
-              <button class="size-btn ${state.drawingSize === 8 ? "active" : ""}" data-size="8" title="Grosso">Grosso</button>
-            </div>
-            <div class="tools-actions">
-              <button class="tool-action-btn" id="tool-undo" type="button" title="Desfazer último traço">↩ Desfazer</button>
-              <button class="tool-action-btn danger" id="tool-clear" type="button" title="Limpar todos os desenhos deste material">🗑️ Limpar tudo</button>
-            </div>
-          </div>
-          <span class="tool-save-pill" id="tool-save-pill">✓ Anotações salvas</span>
+          <button class="companion-btn companion-return-btn ${currentBookmark ? "" : "hidden"}" id="dock-return-btn" type="button" title="${currentBookmark ? `Voltar ao ponto gravado (${currentBookmark.percentage ?? 0}% - ${escapeHtml(currentBookmark.savedAtFormatted)})` : "Nenhum ponto gravado"}">
+            <span class="btn-icon">📍</span>
+            <span class="btn-text">${currentBookmark ? `Voltar (${currentBookmark.percentage ?? 0}%)` : "Voltar"}</span>
+          </button>
+          <button class="companion-btn companion-top-btn" id="dock-top-btn" type="button" title="Voltar ao início da página">
+            <span>↑ Topo</span>
+          </button>
         </div>
-      </div>
+        <div class="companion-toast" id="dock-toast" hidden></div>
+      </aside>`;
 
-      <div class="reader-content-wrap" id="reader-content-wrap">
-        <div class="markdown-body" id="reader-markdown">${renderMarkdown(activeMaterial.content)}</div>
-        <canvas id="reader-canvas" class="reader-canvas"></canvas>
-      </div></article></div>`;
-
-    const listView = readStorage(STORAGE_KEYS.contentListView, {});
     const contentLayout = view.querySelector(".content-layout");
     const contentList = view.querySelector(".content-list");
-    const collapseButton = document.getElementById("collapse-material-list");
     const hideButton = document.getElementById("hide-material-list");
     const showButton = document.getElementById("show-material-list");
     const updateListView = () => {
-      contentLayout.classList.toggle("list-collapsed", listView.collapsed === true);
       contentLayout.classList.toggle("list-hidden", listView.hidden === true);
       contentList.hidden = listView.hidden === true;
-      collapseButton.setAttribute("aria-expanded", String(listView.collapsed !== true));
-      collapseButton.title = listView.collapsed ? "Expandir lista" : "Reduzir lista";
-      collapseButton.setAttribute("aria-label", collapseButton.title);
-      collapseButton.textContent = listView.collapsed ? "+" : "−";
       showButton.hidden = listView.hidden !== true;
       writeStorage(STORAGE_KEYS.contentListView, listView);
     };
-    collapseButton.addEventListener("click", () => {
-      listView.collapsed = !listView.collapsed;
-      listView.hidden = false;
-      updateListView();
-    });
-    hideButton.addEventListener("click", () => {
-      listView.hidden = true;
-      updateListView();
-    });
-    showButton.addEventListener("click", () => {
-      listView.hidden = false;
-      updateListView();
-    });
+    if (hideButton) {
+      hideButton.addEventListener("click", () => {
+        listView.hidden = true;
+        updateListView();
+      });
+    }
+    if (showButton) {
+      showButton.addEventListener("click", () => {
+        listView.hidden = false;
+        updateListView();
+      });
+    }
     updateListView();
+
     document.getElementById("content-subject").addEventListener("change", (event) => setSubject(event.target.value));
     const list = document.getElementById("material-list");
     let materialFilter = "";
@@ -2188,40 +1931,95 @@ async function renderContents() {
       updateList();
     });
 
-    // Ponto de parada (marcador)
-    const saveReadingBtn = document.getElementById("save-reading-btn");
-    if (saveReadingBtn) {
-      saveReadingBtn.addEventListener("click", () => {
-        const saved = saveReadingBookmark(activeMaterial, data.subject);
-        const toast = document.getElementById("bookmark-toast");
-        if (toast) {
-          toast.textContent = `✓ Gravado: ${saved.savedAtFormatted}`;
-          toast.hidden = false;
-          setTimeout(() => { toast.hidden = true; }, 4000);
-        }
-        let returnBtn = document.getElementById("return-reading-btn");
-        const emptyNote = document.getElementById("bookmark-empty-note");
-        if (emptyNote) emptyNote.remove();
-        if (!returnBtn) {
-          returnBtn = document.createElement("button");
-          returnBtn.id = "return-reading-btn";
-          returnBtn.className = "button bookmark-return-btn";
-          returnBtn.type = "button";
-          saveReadingBtn.insertAdjacentElement("afterend", returnBtn);
-          returnBtn.addEventListener("click", () => {
-            const current = getReadingBookmark(activeMaterial.id);
-            if (current) window.scrollTo({ top: current.scrollY, behavior: "smooth" });
-          });
-        }
-        returnBtn.innerHTML = `📍 Voltar de onde parei <small>(${escapeHtml(saved.savedAtFormatted)})</small>`;
+    // Acompanhamento e marcador dinâmico de leitura
+    const progressPill = document.getElementById("reading-progress-pill");
+    const updateProgress = () => {
+      if (progressPill) {
+        const pct = calculateReadingProgress();
+        progressPill.textContent = `${pct}% lido`;
+      }
+    };
+
+    if (state._readerScrollHandler) {
+      window.removeEventListener("scroll", state._readerScrollHandler);
+    }
+    state._readerScrollHandler = updateProgress;
+    window.addEventListener("scroll", state._readerScrollHandler, { passive: true });
+    updateProgress();
+
+    const scrollToBookmark = (bookmark) => {
+      if (!bookmark) return;
+      const targetY = typeof bookmark.scrollY === "number" ? bookmark.scrollY : 0;
+      window.scrollTo({ top: targetY, behavior: "smooth" });
+    };
+
+    const bannerReturnBtn = document.getElementById("banner-return-btn");
+    if (bannerReturnBtn && currentBookmark) {
+      bannerReturnBtn.addEventListener("click", () => scrollToBookmark(currentBookmark));
+    }
+
+    const dockSaveBtn = document.getElementById("dock-save-btn");
+    const dockReturnBtn = document.getElementById("dock-return-btn");
+    const dockToast = document.getElementById("dock-toast");
+    const dockTopBtn = document.getElementById("dock-top-btn");
+
+    if (dockTopBtn) {
+      dockTopBtn.addEventListener("click", () => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
       });
     }
 
-    const returnReadingBtn = document.getElementById("return-reading-btn");
-    if (returnReadingBtn) {
-      returnReadingBtn.addEventListener("click", () => {
-        const current = getReadingBookmark(activeMaterial.id);
-        if (current) window.scrollTo({ top: current.scrollY, behavior: "smooth" });
+    if (dockReturnBtn) {
+      dockReturnBtn.addEventListener("click", () => {
+        const bookmark = getReadingBookmark(activeMaterial.id);
+        if (bookmark) scrollToBookmark(bookmark);
+      });
+    }
+
+    if (dockSaveBtn) {
+      dockSaveBtn.addEventListener("click", () => {
+        const saved = saveReadingBookmark(activeMaterial, data.subject);
+        if (dockToast) {
+          dockToast.textContent = `✓ Gravado em ${saved.percentage}% (${saved.savedAtFormatted})`;
+          dockToast.hidden = false;
+          setTimeout(() => {
+            if (dockToast) dockToast.hidden = true;
+          }, 4500);
+        }
+        if (dockReturnBtn) {
+          dockReturnBtn.classList.remove("hidden");
+          dockReturnBtn.title = `Voltar ao ponto gravado (${saved.percentage}% - ${saved.savedAtFormatted})`;
+          const textSpan = dockReturnBtn.querySelector(".btn-text");
+          if (textSpan) textSpan.textContent = `Voltar (${saved.percentage}%)`;
+        }
+
+        const existingBanner = document.getElementById("reader-bookmark-banner");
+        if (!existingBanner) {
+          const banner = document.createElement("div");
+          banner.className = "reader-bookmark-banner";
+          banner.id = "reader-bookmark-banner";
+          banner.innerHTML = `
+            <div class="reader-bookmark-banner-info">
+              <span class="bookmark-icon">📍</span>
+              <span>Ponto gravado neste material: <strong>${saved.percentage}% lido</strong> <small>(${escapeHtml(saved.savedAtFormatted)})</small></span>
+            </div>
+            <button class="button bookmark-return-btn" id="banner-return-btn" type="button">Voltar para onde parei →</button>
+          `;
+          const readerHead = view.querySelector(".reader-head");
+          if (readerHead) {
+            readerHead.insertAdjacentElement("afterend", banner);
+            banner.querySelector("#banner-return-btn")?.addEventListener("click", () => scrollToBookmark(saved));
+          }
+        } else {
+          existingBanner.innerHTML = `
+            <div class="reader-bookmark-banner-info">
+              <span class="bookmark-icon">📍</span>
+              <span>Ponto gravado neste material: <strong>${saved.percentage}% lido</strong> <small>(${escapeHtml(saved.savedAtFormatted)})</small></span>
+            </div>
+            <button class="button bookmark-return-btn" id="banner-return-btn" type="button">Voltar para onde parei →</button>
+          `;
+          existingBanner.querySelector("#banner-return-btn")?.addEventListener("click", () => scrollToBookmark(saved));
+        }
       });
     }
 
@@ -2240,9 +2038,6 @@ async function renderContents() {
         }, 150);
       });
     }
-
-    applyTextHighlightsToMarkdown(activeMaterial.id);
-    initReaderCanvas(activeMaterial.id);
   } catch (error) {
     console.error(error);
     view.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Rode o extrator e abra o site por um servidor local. Consulte o README.</div>`;
