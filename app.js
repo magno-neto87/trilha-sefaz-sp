@@ -3516,48 +3516,77 @@ async function loadStudyMaterials() {
 }
 
 const THEME_STORAGE_KEY = "trilha-theme-mode";
+let themeInitialized = false;
+
+function toggleTheme() {
+  const current = (document.documentElement.getAttribute("data-theme") || "light") === "dark" ? "dark" : "light";
+  const next = current === "dark" ? "light" : "dark";
+  applyTheme(next);
+}
 
 function initTheme() {
-  const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const initialTheme = saved === "dark" || saved === "light" ? saved : (prefersDark ? "dark" : "light");
-  applyTheme(initialTheme);
+  let theme = "light";
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    theme = saved === "dark" || saved === "light" ? saved : (prefersDark ? "dark" : "light");
+  } catch (e) {
+    console.warn("Could not read theme storage:", e);
+  }
+  applyTheme(theme);
 
-  const toggleHandler = () => {
-    const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-    const next = current === "dark" ? "light" : "dark";
-    applyTheme(next);
-  };
+  if (themeInitialized) return;
+  themeInitialized = true;
 
-  document.getElementById("theme-toggle")?.addEventListener("click", toggleHandler);
-  document.getElementById("sidebar-theme-toggle")?.addEventListener("click", toggleHandler);
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("#theme-toggle, #sidebar-theme-toggle, #auth-theme-toggle, [data-action='toggle-theme']");
+    if (trigger) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleTheme();
+    }
+  });
 
   if (window.matchMedia) {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      if (!localStorage.getItem(THEME_STORAGE_KEY)) {
-        applyTheme(e.matches ? "dark" : "light");
-      }
-    });
+    try {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+        if (!localStorage.getItem(THEME_STORAGE_KEY)) {
+          applyTheme(e.matches ? "dark" : "light");
+        }
+      });
+    } catch (e) {}
   }
 }
 
 function applyTheme(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem(THEME_STORAGE_KEY, theme);
-  const icon = theme === "dark" ? "☀️" : "🌙";
-  const title = theme === "dark" ? "Mudar para modo claro" : "Mudar para modo escuro";
-  const themeIcon = document.getElementById("theme-icon");
-  if (themeIcon) themeIcon.textContent = icon;
-  const sidebarIcon = document.querySelector(".sidebar-theme-icon");
-  if (sidebarIcon) sidebarIcon.textContent = icon;
-  const topBtn = document.getElementById("theme-toggle");
-  if (topBtn) topBtn.title = title;
-  const sideBtn = document.getElementById("sidebar-theme-toggle");
-  if (sideBtn) sideBtn.title = title;
+  const targetTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", targetTheme);
+  document.documentElement.classList.toggle("dark-mode", targetTheme === "dark");
+  if (document.body) {
+    document.body.setAttribute("data-theme", targetTheme);
+    document.body.classList.toggle("dark-mode", targetTheme === "dark");
+  }
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, targetTheme);
+  } catch (e) {}
+
+  const isDark = targetTheme === "dark";
+  const icon = isDark ? "☀️" : "🌙";
+  const title = isDark ? "Mudar para modo claro" : "Mudar para modo escuro";
+
+  document.querySelectorAll(".theme-icon, #theme-icon, .sidebar-theme-icon, .auth-theme-icon").forEach((el) => {
+    el.textContent = icon;
+  });
+
+  const buttons = document.querySelectorAll("#theme-toggle, #sidebar-theme-toggle, #auth-theme-toggle, [data-action='toggle-theme']");
+  buttons.forEach((btn) => {
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+  });
 
   const metaTheme = document.querySelector('meta[name="theme-color"]');
   if (metaTheme) {
-    metaTheme.setAttribute("content", theme === "dark" ? "#0b0f19" : "#f5f8ff");
+    metaTheme.setAttribute("content", isDark ? "#090d16" : "#f8fafc");
   }
 }
 
@@ -3565,7 +3594,6 @@ initTheme();
 
 async function start() {
   try {
-    initTheme();
     await initializeAuth();
     await loadStudyMaterials();
     updateAccountUi();
