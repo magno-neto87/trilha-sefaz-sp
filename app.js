@@ -190,37 +190,76 @@ function updateAccountUi() {
   const hasUser = Boolean(state.authUser);
   const hasAccess = hasUser && state.authLoaded && state.cloudReady && Boolean(state.manifest);
   const recovering = state.authMode === "recovery";
-  document.getElementById("auth-gate").hidden = hasAccess;
+
+  const authGate = document.getElementById("auth-gate");
+  if (authGate) authGate.hidden = hasAccess;
   document.body.classList.toggle("authenticated", hasAccess);
-  document.getElementById("auth-setup").hidden = configured;
-  document.getElementById("auth-guest").hidden = !configured || (hasUser && !recovering);
-  document.getElementById("auth-submit").disabled = !configured || state.authLoading;
-  document.getElementById("auth-waiting").hidden = !configured || (!hasUser && !recovering) || hasAccess || recovering || Boolean(state.authError);
+
+  const authSetup = document.getElementById("auth-setup");
+  if (authSetup) authSetup.hidden = configured;
+
+  const authGuest = document.getElementById("auth-guest");
+  if (authGuest) authGuest.hidden = !configured || (hasUser && !recovering);
+
+  const authSubmit = document.getElementById("auth-submit");
+  if (authSubmit) authSubmit.disabled = !configured || state.authLoading;
+
+  const authWaiting = document.getElementById("auth-waiting");
+  if (authWaiting) authWaiting.hidden = !configured || (!hasUser && !recovering) || hasAccess || recovering || Boolean(state.authError);
+
   const accessError = document.getElementById("auth-access-error");
-  accessError.hidden = !state.authError;
-  accessError.textContent = state.authError || "";
-  document.getElementById("auth-retry").hidden = !state.authError;
-  document.getElementById("auth-user").hidden = !configured || !hasUser;
-  document.getElementById("account-button").textContent = hasUser ? "Minha conta" : "Entrar";
-  document.getElementById("account-name").textContent = hasUser
-    ? state.authUser.email || "Minha conta"
-    : "Meu espaço";
-  document.getElementById("account-storage-label").textContent = hasUser && state.cloudReady
-    ? "Histórico sincronizado"
-    : "Progresso neste dispositivo";
-  document.getElementById("account-storage-indicator").title = hasUser && state.cloudReady
-    ? "Histórico sincronizado com sua conta"
-    : "Dados salvos localmente";
+  if (accessError) {
+    accessError.hidden = !state.authError;
+    accessError.textContent = state.authError || "";
+  }
+
+  const authRetry = document.getElementById("auth-retry");
+  if (authRetry) authRetry.hidden = !state.authError;
+
+  const authUser = document.getElementById("auth-user");
+  if (authUser) authUser.hidden = !configured || !hasUser;
+
+  const accountBtn = document.getElementById("account-button");
+  if (accountBtn) accountBtn.textContent = hasUser ? "Minha conta" : "Entrar";
+
+  const accountName = document.getElementById("account-name");
+  if (accountName) {
+    accountName.textContent = hasUser
+      ? state.authUser.email || "Minha conta"
+      : "Meu espaço";
+  }
+
+  const storageLabel = document.getElementById("account-storage-label");
+  if (storageLabel) {
+    storageLabel.textContent = hasUser && state.cloudReady
+      ? "Histórico sincronizado"
+      : "Progresso neste dispositivo";
+  }
+
+  const storageIndicator = document.getElementById("account-storage-indicator");
+  if (storageIndicator) {
+    storageIndicator.title = hasUser && state.cloudReady
+      ? "Histórico sincronizado com sua conta"
+      : "Dados salvos localmente";
+  }
+
   if (!hasUser) return;
 
-  document.getElementById("auth-user-email").textContent = state.authUser.email || "Conta conectada";
+  const authEmail = document.getElementById("auth-user-email");
+  if (authEmail) authEmail.textContent = state.authUser.email || "Conta conectada";
+
   const pendingImport = state.cloudReady && state.pendingImportKey && localStorage.getItem(state.pendingImportKey);
-  document.getElementById("import-local-history").hidden = !pendingImport;
-  document.getElementById("auth-cloud-message").textContent = pendingImport
-    ? "Há um histórico deste dispositivo preservado separadamente. Você pode mesclá-lo com o histórico da conta."
-    : state.cloudReady
-      ? "Seu progresso é sincronizado com esta conta."
-      : "A conta está conectada, mas o histórico ainda não foi carregado. Verifique a configuração do Supabase.";
+  const importLocal = document.getElementById("import-local-history");
+  if (importLocal) importLocal.hidden = !pendingImport;
+
+  const cloudMsg = document.getElementById("auth-cloud-message");
+  if (cloudMsg) {
+    cloudMsg.textContent = pendingImport
+      ? "Há um histórico deste dispositivo preservado separadamente. Você pode mesclá-lo com o histórico da conta."
+      : state.cloudReady
+        ? "Seu progresso é sincronizado com esta conta."
+        : "A conta está conectada, mas o histórico ainda não foi carregado. Verifique a configuração do Supabase.";
+  }
 }
 
 function setAuthMode(mode) {
