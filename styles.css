@@ -991,3 +991,314 @@ h3 { font: 700 13px "Segoe UI",sans-serif; }
   .map-node { font-size: 9px; max-width: 145px; padding: 9px; }
   .notice { padding: 10px 14px; }
 }
+
+/* ========================================================
+   MELHORIAS: CANETA, MARCA-TEXTO, PONTO DE PARADA E QUESTÕES
+   ======================================================== */
+
+/* Ponto de parada (marcador de leitura com data e hora) */
+.reader-bookmark-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #f8fafd;
+  border: 1px solid #e2eaf5;
+  border-radius: 9px;
+}
+.bookmark-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 13px;
+}
+.bookmark-return-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #edf3ff;
+  border-color: #c4d7fa;
+  color: #1e40af;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 13px;
+}
+.bookmark-return-btn:hover {
+  background: #dfeaff;
+  border-color: #9bbdf6;
+}
+.bookmark-return-btn small {
+  font-weight: 500;
+  opacity: 0.85;
+}
+.bookmark-note {
+  font-size: 10px;
+  color: #8b99ad;
+}
+.bookmark-toast {
+  font-size: 10px;
+  font-weight: 700;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.last-reading-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: linear-gradient(90deg, #eff6ff 0%, #f5f8ff 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  font-size: 11px;
+}
+.last-reading-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e3a8a;
+}
+.last-reading-info strong {
+  color: #1d4ed8;
+}
+.last-reading-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease;
+}
+.last-reading-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Painel de ferramentas da caneta e anotações */
+.reader-tools-panel {
+  background: #ffffff;
+  border: 1px solid #e1e7f0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(30, 45, 76, 0.03);
+}
+.tools-bar-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.tools-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f4f9;
+  padding: 3px;
+  border-radius: 8px;
+}
+.tool-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #4b5563;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  gap: 5px;
+  padding: 6px 10px;
+  transition: all 0.15s ease;
+}
+.tool-btn:hover {
+  background: rgba(255, 255, 255, 0.7);
+  color: #1f2937;
+}
+.tool-btn.active {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #1e40af;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.tools-palette-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.color-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.color-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid white;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  padding: 0;
+  transition: transform 0.12s ease;
+}
+.color-dot:hover {
+  transform: scale(1.15);
+}
+.color-dot.active {
+  box-shadow: 0 0 0 2px #2563eb, 0 2px 5px rgba(0, 0, 0, 0.2);
+  transform: scale(1.2);
+}
+.size-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #f1f4f9;
+  padding: 2px;
+  border-radius: 6px;
+}
+.size-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 4px 7px;
+}
+.size-btn.active {
+  background: #ffffff;
+  color: #1e3a8a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.tools-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-action-btn {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 5px 9px;
+}
+.tool-action-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+.tool-action-btn.danger:hover {
+  background: #fff1f2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+.tool-save-pill {
+  font-size: 9px;
+  font-weight: 700;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* Área de Leitura com Canvas */
+.reader-content-wrap {
+  position: relative;
+  width: 100%;
+}
+.reader-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+.reader-canvas.interactive {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* Destaque de texto selecionado */
+.study-text-highlight {
+  border-radius: 3px;
+  padding: 1px 2px;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.study-text-highlight:hover {
+  filter: brightness(0.92);
+}
+
+/* Opções de Questões e Confirmação */
+.option-button.selected {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+  color: #1e40af !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+.option-button.selected .option-key {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+.confirm-answer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  flex-wrap: wrap;
+}
+.confirm-answer-btn {
+  background: var(--blue);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 10px 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.16s ease;
+}
+.confirm-answer-btn:hover:not(:disabled) {
+  background: var(--blue-deep);
+  transform: translateY(-1px);
+}
+.confirm-answer-btn:disabled {
+  background: #e2e8f0;
+  border-color: transparent;
+  color: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.confirm-hint {
+  font-size: 10px;
+  color: #64748b;
+}
+.empty-state-actions {
+  margin-top: 14px;
+}

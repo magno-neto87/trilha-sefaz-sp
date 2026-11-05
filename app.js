@@ -19,6 +19,9 @@ const STORAGE_KEYS = {
   studyTimer: "trilha-study-timer-v1",
   pomodoroSessions: "trilha-pomodoro-sessions-v1",
   materialReviews: "trilha-material-reviews-v1",
+  readingPositions: "trilha-reading-positions-v1",
+  contentDrawings: "trilha-content-drawings-v1",
+  contentHighlights: "trilha-content-highlights-v1",
 };
 const state = {
   manifest: null,
@@ -29,6 +32,12 @@ const state = {
   activeMaterialId: null,
   questionIndex: 0,
   questionMode: "practice",
+  questionMaterialId: "all",
+  questionStatusFilter: "all",
+  selectedAnswer: null,
+  drawingTool: "read",
+  drawingColor: "#1e293b",
+  drawingSize: 4,
   randomQuestionIds: null,
   randomAnsweredIds: new Set(),
   questionBankCache: new Map(),
@@ -915,6 +924,8 @@ function setSubject(subjectId) {
   document.querySelectorAll(".subject-link").forEach((button) => button.classList.toggle("selected", button.dataset.subjectId === subjectId));
   state.activeMaterialId = null;
   state.questionIndex = 0;
+  state.questionMaterialId = "all";
+  state.selectedAnswer = null;
   state.randomQuestionIds = null;
   state.randomAnsweredIds = new Set();
   state.questionMode = "practice";
@@ -1669,6 +1680,344 @@ async function openMaterialReview(materialId) {
   setTab("contents");
 }
 
+function formatDateTimePtBr(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} às ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function hexToRgba(hex, alpha = 0.5) {
+  if (typeof hex !== "string") return `rgba(250, 204, 21, ${alpha})`;
+  if (hex.startsWith("rgba")) return hex;
+  let c = hex.replace("#", "");
+  if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return `rgba(250, 204, 21, ${alpha})`;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getReadingBookmark(materialId) {
+  const positions = readStorage(STORAGE_KEYS.readingPositions, {});
+  return positions && typeof positions === "object" ? positions[materialId] || null : null;
+}
+
+function getLastGlobalBookmark() {
+  const positions = readStorage(STORAGE_KEYS.readingPositions, {});
+  return positions && typeof positions === "object" ? positions._last || null : null;
+}
+
+function saveReadingBookmark(material, subject) {
+  const positions = readStorage(STORAGE_KEYS.readingPositions, {});
+  const now = new Date();
+  const formatted = formatDateTimePtBr(now);
+  const bookmark = {
+    materialId: material.id,
+    materialTitle: material.title,
+    subjectId: subject.id,
+    subjectName: subject.name,
+    scrollY: Math.max(0, Math.round(window.scrollY)),
+    savedAt: now.toISOString(),
+    savedAtFormatted: formatted,
+  };
+  positions[material.id] = bookmark;
+  positions._last = bookmark;
+  writeStorage(STORAGE_KEYS.readingPositions, positions);
+  return bookmark;
+}
+
+function applyTextHighlightsToMarkdown(materialId) {
+  const container = document.getElementById("reader-markdown");
+  if (!container) return;
+  const highlightsMap = readStorage(STORAGE_KEYS.contentHighlights, {});
+  const highlights = Array.isArray(highlightsMap[materialId]) ? highlightsMap[materialId] : [];
+  if (!highlights.length) return;
+
+  for (const item of highlights) {
+    if (!item.text || item.text.trim().length < 2) continue;
+    highlightTextInElement(container, item);
+  }
+
+  container.querySelectorAll(".study-text-highlight").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = el.dataset.highlightId;
+      if (window.confirm(`Remover marcação do trecho: "${el.textContent.slice(0, 35)}..."?`)) {
+        const allHighlights = readStorage(STORAGE_KEYS.contentHighlights, {});
+        allHighlights[materialId] = (allHighlights[materialId] || []).filter((h) => h.id !== id);
+        writeStorage(STORAGE_KEYS.contentHighlights, allHighlights);
+        const parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+      }
+    });
+  });
+}
+
+function highlightTextInElement(root, highlight) {
+  const targetText = highlight.text.trim();
+  if (!targetText) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const textNodes = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.parentElement && node.parentElement.closest(".study-text-highlight")) continue;
+    textNodes.push(node);
+  }
+
+  for (const textNode of textNodes) {
+    const content = textNode.nodeValue;
+    const index = content.indexOf(targetText);
+    if (index !== -1) {
+      const mark = document.createElement("mark");
+      mark.className = "study-text-highlight";
+      mark.dataset.highlightId = highlight.id;
+      mark.style.backgroundColor = highlight.color || "#fef08a";
+      mark.title = "Clique para remover este destaque";
+
+      const before = content.substring(0, index);
+      const matched = content.substring(index, index + targetText.length);
+      const after = content.substring(index + targetText.length);
+
+      mark.textContent = matched;
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      frag.appendChild(mark);
+      if (after) frag.appendChild(document.createTextNode(after));
+
+      textNode.parentNode.replaceChild(frag, textNode);
+      break;
+    }
+  }
+}
+
+function redrawCanvas(canvas, strokes) {
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!Array.isArray(strokes)) return;
+  for (const stroke of strokes) {
+    if (!stroke.points || stroke.points.length < 2) continue;
+    ctx.beginPath();
+    if (stroke.tool === "highlighter") {
+      ctx.globalCompositeOperation = "multiply";
+      ctx.strokeStyle = hexToRgba(stroke.color, 0.45);
+      ctx.lineWidth = (stroke.size || 4) * 3.5;
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = stroke.color || "#1e293b";
+      ctx.lineWidth = stroke.size || 3;
+    }
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (let i = 1; i < stroke.points.length; i++) {
+      ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function initReaderCanvas(materialId) {
+  const wrap = document.getElementById("reader-content-wrap");
+  const canvas = document.getElementById("reader-canvas");
+  if (!wrap || !canvas) return;
+
+  const drawingsMap = readStorage(STORAGE_KEYS.contentDrawings, {});
+  let strokes = Array.isArray(drawingsMap[materialId]) ? [...drawingsMap[materialId]] : [];
+
+  const resize = () => {
+    const width = wrap.clientWidth;
+    const height = wrap.clientHeight;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      redrawCanvas(canvas, strokes);
+    }
+  };
+  resize();
+
+  const resizeObserver = new ResizeObserver(() => resize());
+  resizeObserver.observe(wrap);
+
+  const saveStrokes = () => {
+    const currentMap = readStorage(STORAGE_KEYS.contentDrawings, {});
+    currentMap[materialId] = strokes;
+    writeStorage(STORAGE_KEYS.contentDrawings, currentMap);
+    const pill = document.getElementById("tool-save-pill");
+    if (pill) {
+      pill.textContent = "✓ Anotações salvas";
+      pill.style.opacity = "1";
+    }
+  };
+
+  const updateCanvasInteractivity = () => {
+    const isInteractive = state.drawingTool !== "read";
+    canvas.classList.toggle("interactive", isInteractive);
+    const palette = document.getElementById("tools-palette");
+    if (palette) palette.hidden = !isInteractive;
+  };
+  updateCanvasInteractivity();
+
+  document.querySelectorAll("[data-tool]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.drawingTool = btn.dataset.tool;
+      document.querySelectorAll("[data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === state.drawingTool));
+      updateCanvasInteractivity();
+    });
+  });
+
+  document.querySelectorAll(".color-dot").forEach((dot) => {
+    dot.addEventListener("click", () => {
+      state.drawingColor = dot.dataset.color;
+      document.querySelectorAll(".color-dot").forEach((d) => d.classList.toggle("active", d.dataset.color === state.drawingColor));
+    });
+  });
+
+  document.querySelectorAll(".size-btn").forEach((sBtn) => {
+    sBtn.addEventListener("click", () => {
+      state.drawingSize = Number(sBtn.dataset.size);
+      document.querySelectorAll(".size-btn").forEach((s) => s.classList.toggle("active", Number(s.dataset.size) === state.drawingSize));
+    });
+  });
+
+  const undoBtn = document.getElementById("tool-undo");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", () => {
+      if (strokes.length) {
+        strokes.pop();
+        redrawCanvas(canvas, strokes);
+        saveStrokes();
+      }
+    });
+  }
+
+  const clearBtn = document.getElementById("tool-clear");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      if (!strokes.length) return;
+      if (window.confirm("Deseja apagar todos os desenhos e anotações deste material?")) {
+        strokes = [];
+        redrawCanvas(canvas, strokes);
+        saveStrokes();
+      }
+    });
+  }
+
+  const hlBtn = document.getElementById("highlight-selected-text-btn");
+  if (hlBtn) {
+    hlBtn.addEventListener("click", () => {
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : "";
+      if (!text || text.length < 2) {
+        showNotice("Selecione um trecho de texto no conteúdo antes de clicar em Destacar seleção.");
+        return;
+      }
+      const highlightsMap = readStorage(STORAGE_KEYS.contentHighlights, {});
+      const list = Array.isArray(highlightsMap[materialId]) ? highlightsMap[materialId] : [];
+      const color = state.drawingColor === "#1e293b" ? "#fef08a" : (state.drawingColor === "#facc15" ? "#fef08a" : hexToRgba(state.drawingColor, 0.35));
+      const highlightId = `hl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      list.push({ id: highlightId, text, color });
+      highlightsMap[materialId] = list;
+      writeStorage(STORAGE_KEYS.contentHighlights, highlightsMap);
+      selection.removeAllRanges();
+      applyTextHighlightsToMarkdown(materialId);
+      showNotice("Trecho destacado e salvo!");
+    });
+  }
+
+  let isDrawing = false;
+  let currentStroke = null;
+
+  const getCanvasCoords = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.round(e.clientX - rect.left),
+      y: Math.round(e.clientY - rect.top),
+    };
+  };
+
+  const eraseAt = (x, y, radius = 18) => {
+    const initialCount = strokes.length;
+    strokes = strokes.filter((stroke) => {
+      if (!stroke.points) return false;
+      return !stroke.points.some((pt) => Math.hypot(pt.x - x, pt.y - y) <= radius);
+    });
+    if (strokes.length !== initialCount) {
+      redrawCanvas(canvas, strokes);
+    }
+  };
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (state.drawingTool === "read") return;
+    canvas.setPointerCapture(e.pointerId);
+    isDrawing = true;
+    const { x, y } = getCanvasCoords(e);
+    if (state.drawingTool === "eraser") {
+      eraseAt(x, y);
+      return;
+    }
+    currentStroke = {
+      tool: state.drawingTool,
+      color: state.drawingColor,
+      size: state.drawingSize,
+      points: [{ x, y }],
+    };
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!isDrawing) return;
+    const { x, y } = getCanvasCoords(e);
+    if (state.drawingTool === "eraser") {
+      eraseAt(x, y);
+      return;
+    }
+    if (!currentStroke) return;
+    const pts = currentStroke.points;
+    const last = pts[pts.length - 1];
+    if (Math.hypot(x - last.x, y - last.y) >= 2.5) {
+      pts.push({ x, y });
+      const ctx = canvas.getContext("2d");
+      ctx.beginPath();
+      if (currentStroke.tool === "highlighter") {
+        ctx.globalCompositeOperation = "multiply";
+        ctx.strokeStyle = hexToRgba(currentStroke.color, 0.45);
+        ctx.lineWidth = currentStroke.size * 3.5;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = currentStroke.color;
+        ctx.lineWidth = currentStroke.size;
+      }
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.globalCompositeOperation = "source-over";
+    }
+  });
+
+  const finishDrawing = () => {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (state.drawingTool === "eraser") {
+      saveStrokes();
+      return;
+    }
+    if (currentStroke && currentStroke.points.length > 1) {
+      strokes.push(currentStroke);
+      saveStrokes();
+    }
+    currentStroke = null;
+  };
+
+  canvas.addEventListener("pointerup", finishDrawing);
+  canvas.addEventListener("pointercancel", finishDrawing);
+}
+
 async function renderContents() {
   view.innerHTML = '<div class="loading-state"><span class="spinner"></span><span>Carregando conteúdos...</span></div>';
   try {
@@ -1683,7 +2032,19 @@ async function renderContents() {
     }
     const completed = readStorage(STORAGE_KEYS.completedMaterials, {});
     const completedCount = data.materials.filter((material) => completed[material.id]).length;
+    const currentBookmark = getReadingBookmark(activeMaterial.id);
+    const lastGlobalBookmark = getLastGlobalBookmark();
+
     view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">BIBLIOTECA DE MATERIAIS</p><h1>Conteúdos</h1><p class="page-subtitle">${escapeHtml(data.subject.name)} · ${data.materials.length} materiais para estudar no seu ritmo.</p></div></div>
+      ${lastGlobalBookmark && lastGlobalBookmark.materialId !== activeMaterial.id ? `
+        <div class="last-reading-banner">
+          <div class="last-reading-info">
+            <span>📍</span>
+            <span>Último ponto gravado: <strong>${escapeHtml(lastGlobalBookmark.materialTitle)}</strong> <small>(${escapeHtml(lastGlobalBookmark.savedAtFormatted)})</small></span>
+          </div>
+          <button class="last-reading-btn" id="go-to-last-bookmark-btn" type="button">Ir para onde parei →</button>
+        </div>
+      ` : ""}
       <div class="content-toolbar card">
         <label class="content-subject-label" for="content-subject">Estudando agora</label>
         <select class="select-control" id="content-subject" aria-label="Selecionar disciplina para estudar">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select>
@@ -1692,7 +2053,68 @@ async function renderContents() {
       <div class="content-layout"><aside class="card content-list" id="content-material-list"><div class="list-header"><div class="list-header-title"><h2>Materiais da disciplina</h2><div class="list-header-actions"><button class="list-view-button" id="collapse-material-list" type="button" aria-controls="material-list" aria-expanded="true" title="Reduzir lista">−</button><button class="list-view-button" id="hide-material-list" type="button" aria-controls="content-material-list" title="Ocultar lista" aria-label="Ocultar lista de materiais">×</button></div></div><input class="search-input" id="material-search" placeholder="Buscar conteúdo..." aria-label="Buscar conteúdo"></div><div class="material-list" id="material-list"></div></aside>
       <article class="card reader"><button class="show-material-list" id="show-material-list" type="button" hidden>☷ Mostrar materiais</button><div class="reader-head"><div class="reader-title"><h2>${escapeHtml(activeMaterial.title)}</h2><div class="reader-meta">${escapeHtml(data.subject.name)} · ${activeMaterial.questions.length} questões associadas</div></div>
         <label class="material-study-toggle ${completed[activeMaterial.id] ? "completed" : ""}" id="material-study-label" for="material-studied"><input id="material-studied" type="checkbox" ${completed[activeMaterial.id] ? "checked" : ""}><span id="material-study-state">${completed[activeMaterial.id] ? "Conteúdo estudado" : "Marcar como estudado"}</span></label>
-      </div><div class="markdown-body">${renderMarkdown(activeMaterial.content)}</div></article></div>`;
+      </div>
+
+      <div class="reader-bookmark-section">
+        <button class="button secondary bookmark-btn" id="save-reading-btn" type="button" title="Gravar a data e hora do ponto exato onde você parou de ler">
+          📌 Gravar onde parei
+        </button>
+        ${currentBookmark ? `
+          <button class="button bookmark-return-btn" id="return-reading-btn" type="button" title="Voltar ao ponto gravado em ${escapeHtml(currentBookmark.savedAtFormatted)}">
+            📍 Voltar de onde parei <small>(${escapeHtml(currentBookmark.savedAtFormatted)})</small>
+          </button>
+        ` : `
+          <span class="bookmark-note" id="bookmark-empty-note">Nenhum ponto gravado neste material ainda.</span>
+        `}
+        <span class="bookmark-toast" id="bookmark-toast" hidden></span>
+      </div>
+
+      <div class="reader-tools-panel" id="reader-tools-panel">
+        <div class="tools-bar-main">
+          <div class="tools-mode-group">
+            <button class="tool-btn ${state.drawingTool === "read" ? "active" : ""}" data-tool="read" type="button" title="Modo Leitura: rolagem e seleção normais">
+              <span class="tool-icon">👁️</span> Leitura
+            </button>
+            <button class="tool-btn ${state.drawingTool === "pen" ? "active" : ""}" data-tool="pen" type="button" title="Caneta livre: escreva ou desenhe na tela">
+              <span class="tool-icon">✍️</span> Caneta
+            </button>
+            <button class="tool-btn ${state.drawingTool === "highlighter" ? "active" : ""}" data-tool="highlighter" type="button" title="Marca-texto livre: faça traços translúcidos sobre o texto">
+              <span class="tool-icon">🖍️</span> Marca-texto
+            </button>
+            <button class="tool-btn" id="highlight-selected-text-btn" type="button" title="Destacar o texto selecionado">
+              <span class="tool-icon">🏷️</span> Destacar seleção
+            </button>
+            <button class="tool-btn ${state.drawingTool === "eraser" ? "active" : ""}" data-tool="eraser" type="button" title="Borracha: clique ou arraste para apagar traços">
+              <span class="tool-icon">🧹</span> Borracha
+            </button>
+          </div>
+          <div class="tools-palette-group" id="tools-palette" ${state.drawingTool === "read" ? "hidden" : ""}>
+            <div class="color-picker" aria-label="Cores">
+              <button class="color-dot ${state.drawingColor === "#1e293b" ? "active" : ""}" data-color="#1e293b" style="background:#1e293b" title="Preto"></button>
+              <button class="color-dot ${state.drawingColor === "#2563eb" ? "active" : ""}" data-color="#2563eb" style="background:#2563eb" title="Azul"></button>
+              <button class="color-dot ${state.drawingColor === "#dc2626" ? "active" : ""}" data-color="#dc2626" style="background:#dc2626" title="Vermelho"></button>
+              <button class="color-dot ${state.drawingColor === "#facc15" ? "active" : ""}" data-color="#facc15" style="background:#facc15" title="Amarelo"></button>
+              <button class="color-dot ${state.drawingColor === "#22c55e" ? "active" : ""}" data-color="#22c55e" style="background:#22c55e" title="Verde"></button>
+            </div>
+            <div class="size-picker" aria-label="Espessura">
+              <button class="size-btn ${state.drawingSize === 2 ? "active" : ""}" data-size="2" title="Fino">Fino</button>
+              <button class="size-btn ${state.drawingSize === 4 ? "active" : ""}" data-size="4" title="Médio">Médio</button>
+              <button class="size-btn ${state.drawingSize === 8 ? "active" : ""}" data-size="8" title="Grosso">Grosso</button>
+            </div>
+            <div class="tools-actions">
+              <button class="tool-action-btn" id="tool-undo" type="button" title="Desfazer último traço">↩ Desfazer</button>
+              <button class="tool-action-btn danger" id="tool-clear" type="button" title="Limpar todos os desenhos deste material">🗑️ Limpar tudo</button>
+            </div>
+          </div>
+          <span class="tool-save-pill" id="tool-save-pill">✓ Anotações salvas</span>
+        </div>
+      </div>
+
+      <div class="reader-content-wrap" id="reader-content-wrap">
+        <div class="markdown-body" id="reader-markdown">${renderMarkdown(activeMaterial.content)}</div>
+        <canvas id="reader-canvas" class="reader-canvas"></canvas>
+      </div></article></div>`;
+
     const listView = readStorage(STORAGE_KEYS.contentListView, {});
     const contentLayout = view.querySelector(".content-layout");
     const contentList = view.querySelector(".content-list");
@@ -1765,6 +2187,62 @@ async function renderContents() {
       document.getElementById("completed-count").textContent = `${data.materials.filter((material) => completed[material.id]).length} / ${data.materials.length}`;
       updateList();
     });
+
+    // Ponto de parada (marcador)
+    const saveReadingBtn = document.getElementById("save-reading-btn");
+    if (saveReadingBtn) {
+      saveReadingBtn.addEventListener("click", () => {
+        const saved = saveReadingBookmark(activeMaterial, data.subject);
+        const toast = document.getElementById("bookmark-toast");
+        if (toast) {
+          toast.textContent = `✓ Gravado: ${saved.savedAtFormatted}`;
+          toast.hidden = false;
+          setTimeout(() => { toast.hidden = true; }, 4000);
+        }
+        let returnBtn = document.getElementById("return-reading-btn");
+        const emptyNote = document.getElementById("bookmark-empty-note");
+        if (emptyNote) emptyNote.remove();
+        if (!returnBtn) {
+          returnBtn = document.createElement("button");
+          returnBtn.id = "return-reading-btn";
+          returnBtn.className = "button bookmark-return-btn";
+          returnBtn.type = "button";
+          saveReadingBtn.insertAdjacentElement("afterend", returnBtn);
+          returnBtn.addEventListener("click", () => {
+            const current = getReadingBookmark(activeMaterial.id);
+            if (current) window.scrollTo({ top: current.scrollY, behavior: "smooth" });
+          });
+        }
+        returnBtn.innerHTML = `📍 Voltar de onde parei <small>(${escapeHtml(saved.savedAtFormatted)})</small>`;
+      });
+    }
+
+    const returnReadingBtn = document.getElementById("return-reading-btn");
+    if (returnReadingBtn) {
+      returnReadingBtn.addEventListener("click", () => {
+        const current = getReadingBookmark(activeMaterial.id);
+        if (current) window.scrollTo({ top: current.scrollY, behavior: "smooth" });
+      });
+    }
+
+    const goToLastBookmarkBtn = document.getElementById("go-to-last-bookmark-btn");
+    if (goToLastBookmarkBtn && lastGlobalBookmark) {
+      goToLastBookmarkBtn.addEventListener("click", async () => {
+        if (lastGlobalBookmark.subjectId !== data.subject.id) {
+          state.activeMaterialId = lastGlobalBookmark.materialId;
+          await setSubject(lastGlobalBookmark.subjectId);
+        } else {
+          state.activeMaterialId = lastGlobalBookmark.materialId;
+          await renderContents();
+        }
+        setTimeout(() => {
+          window.scrollTo({ top: lastGlobalBookmark.scrollY, behavior: "smooth" });
+        }, 150);
+      });
+    }
+
+    applyTextHighlightsToMarkdown(activeMaterial.id);
+    initReaderCanvas(activeMaterial.id);
   } catch (error) {
     console.error(error);
     view.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><br>Rode o extrator e abra o site por um servidor local. Consulte o README.</div>`;
@@ -1927,42 +2405,114 @@ async function renderQuestions() {
   view.innerHTML = '<div class="loading-state"><span class="spinner"></span><span>Preparando questões...</span></div>';
   try {
     const data = await loadSubject();
-    const allQuestions = data.materials.flatMap((material) => material.questions.map((question) => ({
+    const attempts = getAttempts();
+    const isAnswered = (questionId) => attempts.some((item) => item.questionId === questionId);
+
+    const allSubjectQuestions = data.materials.flatMap((material) => material.questions.map((question) => ({
       ...question,
       materialTitle: material.title,
       materialId: material.id,
       subjectId: data.subject.id,
       subjectName: data.subject.name,
     })));
-    const questionById = new Map(allQuestions.map((question) => [question.id, question]));
+
+    let materialQuestions = allSubjectQuestions;
+    if (state.questionMaterialId && state.questionMaterialId !== "all") {
+      materialQuestions = allSubjectQuestions.filter((q) => q.materialId === state.questionMaterialId);
+      if (!materialQuestions.length && allSubjectQuestions.length) {
+        state.questionMaterialId = "all";
+        materialQuestions = allSubjectQuestions;
+      }
+    }
+
+    const totalInMaterial = materialQuestions.length;
+    const unansweredInMaterial = materialQuestions.filter((q) => !isAnswered(q.id)).length;
+    const answeredInMaterial = materialQuestions.filter((q) => isAnswered(q.id)).length;
+
+    let filteredQuestions = materialQuestions;
+    if (state.questionStatusFilter === "unanswered") {
+      filteredQuestions = materialQuestions.filter((q) => !isAnswered(q.id));
+    } else if (state.questionStatusFilter === "answered") {
+      filteredQuestions = materialQuestions.filter((q) => isAnswered(q.id));
+    }
+
+    const questionById = new Map(filteredQuestions.map((question) => [question.id, question]));
     const questions = state.randomQuestionIds
       ? state.randomQuestionIds.map((questionId) => questionById.get(questionId)).filter(Boolean)
-      : allQuestions;
+      : filteredQuestions;
+
     if (state.randomQuestionIds && state.questionIndex >= questions.length) {
       view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões aleatórias</h1><p class="page-subtitle">${escapeHtml(data.subject.name)} · sessão concluída</p></div></div>${questionModeSwitcher()}<article class="card random-complete"><span class="random-complete-icon">✓</span><h2>Você concluiu o conjunto aleatório!</h2><p>Foram respondidas ${state.randomAnsweredIds.size} de ${questions.length} questões desta sessão.</p><div class="random-complete-actions"><button class="button" id="restart-random-questions">Novo conjunto aleatório</button><button class="button secondary" id="exit-random-questions">Voltar à lista normal</button></div></article>`;
       bindQuestionModeSwitcher();
       document.getElementById("restart-random-questions").addEventListener("click", () => {
-        state.randomQuestionIds = shuffleQuestions(allQuestions.filter((question) => question.answer && question.options.length >= 2)).map((question) => question.id);
+        state.randomQuestionIds = shuffleQuestions(filteredQuestions.filter((question) => question.answer && question.options.length >= 2)).map((question) => question.id);
         state.randomAnsweredIds = new Set();
         state.questionIndex = 0;
+        state.selectedAnswer = null;
         renderQuestions();
       });
       document.getElementById("exit-random-questions").addEventListener("click", () => {
         state.randomQuestionIds = null;
         state.randomAnsweredIds = new Set();
         state.questionIndex = 0;
+        state.selectedAnswer = null;
         renderQuestions();
       });
       return;
     }
+
     if (!questions.length) {
-      view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões</h1><p class="page-subtitle">${escapeHtml(data.subject.name)}</p></div></div>${questionModeSwitcher()}<article class="card empty-state">Não encontramos questões identificadas nesta disciplina.<br>Selecione outra disciplina ou confira os formatos reconhecidos pelo extrator.</article>`;
+      view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões</h1><p class="page-subtitle">${escapeHtml(data.subject.name)}</p></div></div>
+        ${questionModeSwitcher()}
+        <div class="study-toolbar">
+          <select class="select-control" id="question-subject" aria-label="Selecionar disciplina">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select>
+          <select class="select-control" id="question-material" aria-label="Filtrar por material">
+            <option value="all" ${state.questionMaterialId === "all" ? "selected" : ""}>Todos os materiais (${allSubjectQuestions.length})</option>
+            ${data.materials.map((m) => `<option value="${m.id}" ${m.id === state.questionMaterialId ? "selected" : ""}>${escapeHtml(m.title)} (${m.questions.length})</option>`).join("")}
+          </select>
+          <select class="select-control" id="question-status-filter" aria-label="Filtrar por status">
+            <option value="all" ${state.questionStatusFilter === "all" ? "selected" : ""}>Todas as questões (${totalInMaterial})</option>
+            <option value="unanswered" ${state.questionStatusFilter === "unanswered" ? "selected" : ""}>Não respondidas ainda (${unansweredInMaterial})</option>
+            <option value="answered" ${state.questionStatusFilter === "answered" ? "selected" : ""}>Já respondidas (${answeredInMaterial})</option>
+          </select>
+        </div>
+        <article class="card empty-state">
+          <h3>Nenhuma questão encontrada com os filtros selecionados</h3>
+          <p>${state.questionStatusFilter === "unanswered" ? "Parabéns! Todas as questões deste filtro já foram respondidas." : "Não encontramos questões para os critérios selecionados."}</p>
+          <div class="empty-state-actions">
+            <button class="button secondary" id="reset-question-filter" type="button">Limpar filtros e ver todas as questões</button>
+          </div>
+        </article>`;
       bindQuestionModeSwitcher();
+      document.getElementById("question-subject").addEventListener("change", (event) => {
+        state.questionMaterialId = "all";
+        state.selectedAnswer = null;
+        setSubject(event.target.value);
+      });
+      document.getElementById("question-material").addEventListener("change", (event) => {
+        state.questionMaterialId = event.target.value;
+        state.questionIndex = 0;
+        state.selectedAnswer = null;
+        renderQuestions();
+      });
+      document.getElementById("question-status-filter").addEventListener("change", (event) => {
+        state.questionStatusFilter = event.target.value;
+        state.questionIndex = 0;
+        state.selectedAnswer = null;
+        renderQuestions();
+      });
+      document.getElementById("reset-question-filter").addEventListener("click", () => {
+        state.questionMaterialId = "all";
+        state.questionStatusFilter = "all";
+        state.questionIndex = 0;
+        state.selectedAnswer = null;
+        renderQuestions();
+      });
       return;
     }
-    state.questionIndex = Math.min(state.questionIndex, questions.length - 1);
+
+    state.questionIndex = Math.max(0, Math.min(state.questionIndex, questions.length - 1));
     const question = questions[state.questionIndex];
-    const attempts = getAttempts();
     const isSpacedReview = state.reviewQuestionId === question.id;
     const isRandomMode = Boolean(state.randomQuestionIds);
     const prior = [...attempts].reverse().find((item) => item.questionId === question.id);
@@ -1971,35 +2521,121 @@ async function renderQuestions() {
       startQuestionTimer(question.id, "practice");
     }
     const answerKey = question.answer;
-    const selected = isSpacedReview && !isRandomMode ? null : (currentAttempt?.selected || null);
     const isRevealed = Boolean(currentAttempt);
+    const selected = isRevealed ? currentAttempt.selected : (state.selectedAnswer || null);
     const keyLabel = answerKey || "";
-    view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões</h1><p class="page-subtitle">Resolva, risque alternativas para organizar o raciocínio e revise a explicação.</p></div></div>
+
+    view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões</h1><p class="page-subtitle">Resolva, selecione uma alternativa, confirme sua resposta e confira a resolução comentada.</p></div></div>
       ${questionModeSwitcher()}
-      <div class="study-toolbar"><select class="select-control" id="question-subject" aria-label="Selecionar disciplina">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select><span class="period-pill">${state.questionIndex + 1} de ${questions.length} ${isRandomMode ? "no conjunto aleatório" : "nesta disciplina"}</span><button class="button ${isRandomMode ? "random-mode-active" : "secondary"}" id="random-question-mode" type="button" aria-pressed="${isRandomMode}" title="Embaralha questões com alternativas e gabarito desta disciplina; respostas anteriores podem ser refeitas.">${isRandomMode ? "Sair do modo aleatório" : "Embaralhar questões"}</button></div>
-      <div class="question-layout"><article class="card question-card"><div class="question-meta"><span class="question-tag">${escapeHtml(question.number)}</span><span>${escapeHtml(question.materialTitle)}</span></div>
-        <div class="markdown-body">${renderMarkdown(question.statement)}</div>
-        <div class="option-list">${renderOptionRows(question, { selected, answerKey, revealed: isRevealed && !isRandomMode, canAnswer: !isRevealed || isSpacedReview || isRandomMode })}</div>
-        ${isSpacedReview ? '<div class="feedback neutral">Revisão espaçada: responda novamente para programar o próximo intervalo.</div>' : ""}
-        ${isRevealed && (!isSpacedReview || isRandomMode) ? `<div class="feedback ${answerKey ? (selected === answerKey ? "success" : "error") : "neutral"}">${answerKey ? (selected === answerKey ? "Resposta correta! Muito bem." : `Não foi dessa vez. O gabarito é ${escapeHtml(keyLabel)}.`) : "Não foi possível identificar um gabarito nesta questão. Consulte a resolução e a fonte original."}</div>${question.solution ? `<div class="solution-box"><h3>Resolução comentada</h3><div class="markdown-body">${renderMarkdown(question.solution)}</div></div>` : ""}` : ""}
-        ${question.options.length ? "" : '<div class="feedback neutral">As alternativas não foram identificadas automaticamente neste material.</div>'}
-        <div class="question-actions"><button class="button secondary" id="previous-question" ${state.questionIndex === 0 ? "disabled" : ""}>← Anterior</button><button class="button" id="next-question" ${!isRandomMode && state.questionIndex >= questions.length - 1 ? "disabled" : ""}>${state.questionIndex >= questions.length - 1 ? (isRandomMode ? "Concluir sessão" : "Próxima questão →") : "Próxima questão →"}</button></div>
-      </article>
-      <aside class="card question-side"><h3>Seu ritmo nesta disciplina</h3><div class="side-stat"><span>Respondidas</span><strong>${attempts.filter((item) => item.subjectId === data.subject.id).length}</strong></div><div class="side-stat"><span>Taxa de acerto</span><strong>${subjectAccuracy(attempts, data.subject.id)}%</strong></div><div class="tip-box"><strong>Dica de estudo</strong><br>Leia a resolução mesmo quando acertar. Entender o raciocínio ajuda a fixar o conteúdo.</div></aside></div>`;
+      <div class="study-toolbar">
+        <select class="select-control" id="question-subject" aria-label="Selecionar disciplina">
+          ${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}
+        </select>
+        <select class="select-control" id="question-material" aria-label="Filtrar por material">
+          <option value="all" ${state.questionMaterialId === "all" ? "selected" : ""}>Todos os materiais (${allSubjectQuestions.length})</option>
+          ${data.materials.map((m) => `<option value="${m.id}" ${m.id === state.questionMaterialId ? "selected" : ""}>${escapeHtml(m.title)} (${m.questions.length})</option>`).join("")}
+        </select>
+        <select class="select-control" id="question-status-filter" aria-label="Filtrar por status">
+          <option value="all" ${state.questionStatusFilter === "all" ? "selected" : ""}>Todas as questões (${totalInMaterial})</option>
+          <option value="unanswered" ${state.questionStatusFilter === "unanswered" ? "selected" : ""}>Não respondidas ainda (${unansweredInMaterial})</option>
+          <option value="answered" ${state.questionStatusFilter === "answered" ? "selected" : ""}>Já respondidas (${answeredInMaterial})</option>
+        </select>
+        <span class="period-pill">
+          ${state.questionIndex + 1} de ${questions.length} ${isRandomMode ? "no conjunto aleatório" : (state.questionStatusFilter === "unanswered" ? "não respondidas" : "neste filtro")}
+        </span>
+        <button class="button ${isRandomMode ? "random-mode-active" : "secondary"}" id="random-question-mode" type="button" aria-pressed="${isRandomMode}" title="Embaralha questões com alternativas e gabarito deste filtro; respostas anteriores podem ser refeitas.">
+          ${isRandomMode ? "Sair do modo aleatório" : "Embaralhar questões"}
+        </button>
+      </div>
+      <div class="question-layout">
+        <article class="card question-card">
+          <div class="question-meta">
+            <span class="question-tag">${escapeHtml(question.number)}</span>
+            <span>${escapeHtml(question.materialTitle)}</span>
+          </div>
+          <div class="markdown-body">${renderMarkdown(question.statement)}</div>
+          <div class="option-list">${renderOptionRows(question, { selected, answerKey, revealed: isRevealed && !isRandomMode, canAnswer: !isRevealed || isSpacedReview || isRandomMode })}</div>
+          ${(!isRevealed || isSpacedReview || (isRandomMode && !state.randomAnsweredIds.has(question.id))) ? `
+            <div class="confirm-answer-row">
+              <button class="button confirm-answer-btn" id="confirm-answer-btn" ${state.selectedAnswer ? "" : "disabled"} type="button">
+                ✓ Confirmar resposta
+              </button>
+              <span class="confirm-hint" id="confirm-hint">
+                ${state.selectedAnswer ? `Alternativa (${escapeHtml(state.selectedAnswer)}) selecionada · Clique em "Confirmar resposta"` : "Escolha uma alternativa acima e confirme"}
+              </span>
+            </div>
+          ` : ""}
+          ${isSpacedReview ? '<div class="feedback neutral">Revisão espaçada: selecione uma alternativa e confirme para programar o próximo intervalo.</div>' : ""}
+          ${isRevealed && (!isSpacedReview || isRandomMode) ? `<div class="feedback ${answerKey ? (selected === answerKey ? "success" : "error") : "neutral"}">${answerKey ? (selected === answerKey ? "Resposta correta! Muito bem." : `Não foi dessa vez. O gabarito é ${escapeHtml(keyLabel)}.`) : "Não foi possível identificar um gabarito nesta questão. Consulte a resolução e a fonte original."}</div>${question.solution ? `<div class="solution-box"><h3>Resolução comentada</h3><div class="markdown-body">${renderMarkdown(question.solution)}</div></div>` : ""}` : ""}
+          ${question.options.length ? "" : '<div class="feedback neutral">As alternativas não foram identificadas automaticamente neste material.</div>'}
+          <div class="question-actions">
+            <button class="button secondary" id="previous-question" ${state.questionIndex === 0 ? "disabled" : ""}>← Anterior</button>
+            <button class="button" id="next-question" ${!isRandomMode && state.questionIndex >= questions.length - 1 ? "disabled" : ""}>${state.questionIndex >= questions.length - 1 ? (isRandomMode ? "Concluir sessão" : "Próxima questão →") : "Próxima questão →"}</button>
+          </div>
+        </article>
+        <aside class="card question-side">
+          <h3>Seu ritmo nesta disciplina</h3>
+          <div class="side-stat"><span>Respondidas</span><strong>${attempts.filter((item) => item.subjectId === data.subject.id).length}</strong></div>
+          <div class="side-stat"><span>Taxa de acerto</span><strong>${subjectAccuracy(attempts, data.subject.id)}%</strong></div>
+          <div class="tip-box"><strong>Dica de estudo</strong><br>Leia a resolução mesmo quando acertar. Entender o raciocínio ajuda a fixar o conteúdo.</div>
+        </aside>
+      </div>`;
+
     bindQuestionModeSwitcher();
-    bindRandomQuestionMode(allQuestions);
+    bindRandomQuestionMode(filteredQuestions);
     bindEliminationControls(question.id);
-    document.getElementById("question-subject").addEventListener("change", (event) => setSubject(event.target.value));
+    document.getElementById("question-subject").addEventListener("change", (event) => {
+      state.questionMaterialId = "all";
+      state.selectedAnswer = null;
+      setSubject(event.target.value);
+    });
+    document.getElementById("question-material").addEventListener("change", (event) => {
+      state.questionMaterialId = event.target.value;
+      state.questionIndex = 0;
+      state.selectedAnswer = null;
+      renderQuestions();
+    });
+    document.getElementById("question-status-filter").addEventListener("change", (event) => {
+      state.questionStatusFilter = event.target.value;
+      state.questionIndex = 0;
+      state.selectedAnswer = null;
+      renderQuestions();
+    });
+
     view.querySelectorAll("[data-answer]").forEach((button) => button.addEventListener("click", () => {
+      if (isRevealed && !isSpacedReview && (!isRandomMode || state.randomAnsweredIds.has(question.id))) return;
       const chosen = button.dataset.answer;
-      if (!answerKey) {
-        showQuestionWithoutKey(question, data, questions, chosen);
-        return;
+      state.selectedAnswer = chosen;
+      view.querySelectorAll("[data-answer]").forEach((btn) => {
+        btn.classList.toggle("selected", btn.dataset.answer === chosen);
+      });
+      const confirmBtn = document.getElementById("confirm-answer-btn");
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
       }
-      const history = getAttempts();
-      const previousReview = readStorage(STORAGE_KEYS.questionReviews, {})[question.id] || null;
-      const answeredAt = new Date();
-      const attempt = {
+      const hint = document.getElementById("confirm-hint");
+      if (hint) {
+        hint.textContent = `Alternativa (${chosen}) selecionada · Clique em "Confirmar resposta"`;
+      }
+    }));
+
+    const confirmBtn = document.getElementById("confirm-answer-btn");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", () => {
+        const chosen = state.selectedAnswer;
+        if (!chosen) {
+          showNotice("Selecione uma alternativa antes de confirmar.");
+          return;
+        }
+        state.selectedAnswer = null;
+        if (!answerKey) {
+          showQuestionWithoutKey(question, data, questions, chosen);
+          return;
+        }
+        const history = getAttempts();
+        const previousReview = readStorage(STORAGE_KEYS.questionReviews, {})[question.id] || null;
+        const answeredAt = new Date();
+        const attempt = {
           questionId: question.id,
           subjectId: data.subject.id,
           materialTitle: question.materialTitle,
@@ -2010,22 +2646,25 @@ async function renderQuestions() {
           answeredAt: answeredAt.toISOString(),
           durationSeconds: stopQuestionTimer(question.id, "practice"),
         };
-      if (isRandomMode) {
-        history.push(attempt);
-        state.randomAnsweredIds.add(question.id);
-        writeStorage(STORAGE_KEYS.attempts, history);
-        scheduleQuestionReview(question.id, attempt.correct, previousReview, answeredAt);
-      } else if (isSpacedReview || !history.some((item) => item.questionId === question.id)) {
-        history.push(attempt);
-        writeStorage(STORAGE_KEYS.attempts, history);
-        scheduleQuestionReview(question.id, attempt.correct, isSpacedReview ? previousReview : null, answeredAt);
-      }
-      if (isSpacedReview) state.reviewQuestionId = null;
-      renderQuestions();
-    }));
+        if (isRandomMode) {
+          history.push(attempt);
+          state.randomAnsweredIds.add(question.id);
+          writeStorage(STORAGE_KEYS.attempts, history);
+          scheduleQuestionReview(question.id, attempt.correct, previousReview, answeredAt);
+        } else if (isSpacedReview || !history.some((item) => item.questionId === question.id)) {
+          history.push(attempt);
+          writeStorage(STORAGE_KEYS.attempts, history);
+          scheduleQuestionReview(question.id, attempt.correct, isSpacedReview ? previousReview : null, answeredAt);
+        }
+        if (isSpacedReview) state.reviewQuestionId = null;
+        renderQuestions();
+      });
+    }
+
     document.getElementById("previous-question").addEventListener("click", () => {
       stopQuestionTimer(question.id, "practice");
       state.reviewQuestionId = null;
+      state.selectedAnswer = null;
       state.questionIndex -= 1;
       renderQuestions();
     });
@@ -2033,6 +2672,7 @@ async function renderQuestions() {
       if (!isRandomMode && state.questionIndex >= questions.length - 1) return;
       stopQuestionTimer(question.id, "practice");
       state.reviewQuestionId = null;
+      state.selectedAnswer = null;
       state.questionIndex += 1;
       renderQuestions();
     });
