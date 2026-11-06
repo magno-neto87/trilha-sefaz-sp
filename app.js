@@ -2799,6 +2799,20 @@ function bindEliminationControls(questionId) {
   }));
 }
 
+function cleanOptionText(text, key, question) {
+  if (!text || !String(text).trim()) {
+    if (question?.id === "414a2c99cd5e37" && key === "B") {
+      return "comparação.";
+    }
+    return "";
+  }
+  let clean = String(text).trim();
+  clean = clean.replace(/\s*(?:\*{1,2}|_{1,2})?\s*(?:solu[cç][aã]o|gabarito|coment[aá]rio)\s*[:：]?\s*(?:\*{1,2}|_{1,2})?.*$/i, "");
+  clean = clean.replace(/\s*(?:\*{1,2}|_{1,2})?\s*\d+\.\s+[A-ZÀ-Ú][a-zà-ú]+.*$/i, "");
+  clean = clean.replace(/\s*-\s*$/, "");
+  return clean.trim();
+}
+
 function renderOptionRows(question, { selected = null, answerKey = null, revealed = false, canAnswer = true } = {}) {
   const eliminated = new Set(getEliminatedOptions(question.id));
   return question.options.map((option) => {
@@ -2807,9 +2821,10 @@ function renderOptionRows(question, { selected = null, answerKey = null, reveale
     else if (revealed && option.key === selected && selected !== answerKey) classes += " incorrect";
     else if (selected === option.key) classes += " selected";
     const isEliminated = eliminated.has(option.key);
+    const cleanedText = cleanOptionText(option.text, option.key, question);
     return `<div class="option-row ${isEliminated ? "eliminated" : ""}">
       <button class="${classes}" data-answer="${escapeHtml(option.key)}" ${canAnswer ? "" : "disabled"}>
-        <span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(option.text)}</span>
+        <span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(cleanedText)}</span>
       </button>
       <button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button>
     </div>`;
@@ -2899,7 +2914,7 @@ async function renderQuestions() {
 
     let filteredQuestions = materialQuestions;
     if (state.questionStatusFilter === "unanswered") {
-      filteredQuestions = materialQuestions.filter((q) => !isAnswered(q.id));
+      filteredQuestions = materialQuestions.filter((q) => !isAnswered(q.id) || q.id === state.revealedQuestionId);
     } else if (state.questionStatusFilter === "answered") {
       filteredQuestions = materialQuestions.filter((q) => isAnswered(q.id));
     }
@@ -2909,6 +2924,13 @@ async function renderQuestions() {
       ? state.randomQuestionIds.map((questionId) => questionById.get(questionId)).filter(Boolean)
       : filteredQuestions;
 
+    if (state.revealedQuestionId && !state.randomQuestionIds) {
+      const revIdx = questions.findIndex((q) => q.id === state.revealedQuestionId);
+      if (revIdx >= 0) {
+        state.questionIndex = revIdx;
+      }
+    }
+
     if (state.randomQuestionIds && state.questionIndex >= questions.length) {
       view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PRÁTICA INTELIGENTE</p><h1>Questões aleatórias</h1><p class="page-subtitle">${escapeHtml(data.subject.name)} · sessão concluída</p></div></div>${questionModeSwitcher()}<article class="card random-complete"><span class="random-complete-icon">✓</span><h2>Você concluiu o conjunto aleatório!</h2><p>Foram respondidas ${state.randomAnsweredIds.size} de ${questions.length} questões desta sessão.</p><div class="random-complete-actions"><button class="button" id="restart-random-questions">Novo conjunto aleatório</button><button class="button secondary" id="exit-random-questions">Voltar à lista normal</button></div></article>`;
       bindQuestionModeSwitcher();
@@ -2917,6 +2939,8 @@ async function renderQuestions() {
         state.randomAnsweredIds = new Set();
         state.questionIndex = 0;
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         renderQuestions();
       });
       document.getElementById("exit-random-questions").addEventListener("click", () => {
@@ -2924,6 +2948,8 @@ async function renderQuestions() {
         state.randomAnsweredIds = new Set();
         state.questionIndex = 0;
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         renderQuestions();
       });
       return;
@@ -2955,18 +2981,24 @@ async function renderQuestions() {
       document.getElementById("question-subject").addEventListener("change", (event) => {
         state.questionMaterialId = "all";
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         setSubject(event.target.value);
       });
       document.getElementById("question-material").addEventListener("change", (event) => {
         state.questionMaterialId = event.target.value;
         state.questionIndex = 0;
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         renderQuestions();
       });
       document.getElementById("question-status-filter").addEventListener("change", (event) => {
         state.questionStatusFilter = event.target.value;
         state.questionIndex = 0;
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         renderQuestions();
       });
       document.getElementById("reset-question-filter").addEventListener("click", () => {
@@ -2974,6 +3006,8 @@ async function renderQuestions() {
         state.questionStatusFilter = "all";
         state.questionIndex = 0;
         state.selectedAnswer = null;
+        state.revealedQuestionId = null;
+        state.revealedAttempt = null;
         renderQuestions();
       });
       return;
@@ -2984,7 +3018,9 @@ async function renderQuestions() {
     const isSpacedReview = state.reviewQuestionId === question.id;
     const isRandomMode = Boolean(state.randomQuestionIds);
     const prior = [...attempts].reverse().find((item) => item.questionId === question.id);
-    const currentAttempt = isRandomMode && !state.randomAnsweredIds.has(question.id) ? null : prior;
+    const currentAttempt = isRandomMode
+      ? (!state.randomAnsweredIds.has(question.id) ? null : prior)
+      : (state.revealedQuestionId === question.id ? (state.revealedAttempt || prior) : prior);
     if (!prior || isSpacedReview || (isRandomMode && !state.randomAnsweredIds.has(question.id))) {
       startQuestionTimer(question.id, "practice");
     }
@@ -3055,18 +3091,24 @@ async function renderQuestions() {
     document.getElementById("question-subject").addEventListener("change", (event) => {
       state.questionMaterialId = "all";
       state.selectedAnswer = null;
+      state.revealedQuestionId = null;
+      state.revealedAttempt = null;
       setSubject(event.target.value);
     });
     document.getElementById("question-material").addEventListener("change", (event) => {
       state.questionMaterialId = event.target.value;
       state.questionIndex = 0;
       state.selectedAnswer = null;
+      state.revealedQuestionId = null;
+      state.revealedAttempt = null;
       renderQuestions();
     });
     document.getElementById("question-status-filter").addEventListener("change", (event) => {
       state.questionStatusFilter = event.target.value;
       state.questionIndex = 0;
       state.selectedAnswer = null;
+      state.revealedQuestionId = null;
+      state.revealedAttempt = null;
       renderQuestions();
     });
 
@@ -3119,12 +3161,25 @@ async function renderQuestions() {
           state.randomAnsweredIds.add(question.id);
           writeStorage(STORAGE_KEYS.attempts, history);
           scheduleQuestionReview(question.id, attempt.correct, previousReview, answeredAt);
-        } else if (isSpacedReview || !history.some((item) => item.questionId === question.id)) {
-          history.push(attempt);
+        } else {
+          let existingIdx = -1;
+          for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].questionId === question.id) {
+              existingIdx = i;
+              break;
+            }
+          }
+          if (existingIdx >= 0 && !isSpacedReview) {
+            history[existingIdx] = attempt;
+          } else {
+            history.push(attempt);
+          }
           writeStorage(STORAGE_KEYS.attempts, history);
           scheduleQuestionReview(question.id, attempt.correct, isSpacedReview ? previousReview : null, answeredAt);
         }
         if (isSpacedReview) state.reviewQuestionId = null;
+        state.revealedQuestionId = question.id;
+        state.revealedAttempt = attempt;
         renderQuestions();
       });
     }
@@ -3133,6 +3188,8 @@ async function renderQuestions() {
       stopQuestionTimer(question.id, "practice");
       state.reviewQuestionId = null;
       state.selectedAnswer = null;
+      state.revealedQuestionId = null;
+      state.revealedAttempt = null;
       state.questionIndex -= 1;
       renderQuestions();
     });
@@ -3141,6 +3198,8 @@ async function renderQuestions() {
       stopQuestionTimer(question.id, "practice");
       state.reviewQuestionId = null;
       state.selectedAnswer = null;
+      state.revealedQuestionId = null;
+      state.revealedAttempt = null;
       state.questionIndex += 1;
       renderQuestions();
     });
@@ -3248,7 +3307,8 @@ function renderSimulationQuestion(review = false) {
         const status = simulationOptionStatus(question, option, selected, revealed);
         const classes = ["option-button", status, selected === option.key && !revealed ? "selected" : ""].filter(Boolean).join(" ");
         const isEliminated = getEliminatedOptions(question.id).includes(option.key);
-        return `<div class="option-row ${isEliminated ? "eliminated" : ""}"><button class="${classes}" data-answer="${escapeHtml(option.key)}" ${review ? "disabled" : ""}><span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(option.text)}</span></button><button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button></div>`;
+        const cleanedText = cleanOptionText(option.text, option.key, question);
+        return `<div class="option-row ${isEliminated ? "eliminated" : ""}"><button class="${classes}" data-answer="${escapeHtml(option.key)}" ${review ? "disabled" : ""}><span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(cleanedText)}</span></button><button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button></div>`;
       }).join("")}</div>
       ${revealed ? `<div class="feedback ${selected === question.answer ? "success" : selected ? "error" : "neutral"}">${selected ? (selected === question.answer ? "Resposta correta." : `Resposta incorreta. Gabarito: ${escapeHtml(question.answer)}.`) : `Questão não respondida. Gabarito: ${escapeHtml(question.answer)}.`}</div>${question.solution ? `<div class="solution-box"><h3>Resolução comentada</h3><div class="markdown-body">${renderMarkdown(question.solution)}</div></div>` : ""}` : ""}
       <div class="simulation-question-nav">${simulation.questions.map((item, itemIndex) => `<button type="button" class="simulation-index ${itemIndex === index ? "current" : ""} ${simulation.answers[item.id] ? "answered" : ""}" data-simulation-index="${itemIndex}" aria-label="Ir para questão ${itemIndex + 1}">${itemIndex + 1}</button>`).join("")}</div>
