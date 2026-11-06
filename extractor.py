@@ -100,6 +100,13 @@ def stable_id(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:14]
 
 
+def natural_sort_key(path: Path) -> list:
+    """Ordena caminhos usando ordem natural: '10. Foo' vem após '2. Bar'."""
+    def to_int_or_str(text: str):
+        return int(text) if text.isdigit() else text.casefold()
+    return [to_int_or_str(chunk) for chunk in re.split(r"(\d+)", path.name)]
+
+
 def clean_title(path: Path) -> str:
     title = path.stem
     title = re.sub(r"_[0-9a-f]{6,}$", "", title, flags=re.I)
@@ -737,7 +744,7 @@ def extract(root: Path, output: Path, source_format: str = "auto") -> dict[str, 
     root = root.resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"Pasta de origem não encontrada: {root}")
-    subject_dirs = sorted((path for path in root.iterdir() if path.is_dir()), key=lambda p: p.name.casefold())
+    subject_dirs = sorted((path for path in root.iterdir() if path.is_dir()), key=natural_sort_key)
     subjects: list[dict[str, Any]] = []
     manifest_materials: list[dict[str, str]] = []
     question_index: list[dict[str, str]] = []
@@ -747,13 +754,13 @@ def extract(root: Path, output: Path, source_format: str = "auto") -> dict[str, 
     for subject_dir in subject_dirs:
         materials: list[dict[str, Any]] = []
         if source_format == "pdf":
-            source_files = sorted(subject_dir.rglob("*.pdf"), key=lambda p: str(p).casefold())
+            source_files = sorted(subject_dir.rglob("*.pdf"), key=natural_sort_key)
         elif source_format == "md":
-            source_files = sorted(subject_dir.rglob("*.md"), key=lambda p: str(p).casefold())
+            source_files = sorted(subject_dir.rglob("*.md"), key=natural_sort_key)
         else:  # auto: prefer pdf if available in subject_dir, else md
-            source_files = sorted(subject_dir.rglob("*.pdf"), key=lambda p: str(p).casefold())
+            source_files = sorted(subject_dir.rglob("*.pdf"), key=natural_sort_key)
             if not source_files:
-                source_files = sorted(subject_dir.rglob("*.md"), key=lambda p: str(p).casefold())
+                source_files = sorted(subject_dir.rglob("*.md"), key=natural_sort_key)
         if not source_files:
             continue
         for source in source_files:
