@@ -121,7 +121,14 @@ def is_question_candidate(block: str) -> bool:
     options = parse_options(block)
     if len(options) < 2:
         return False
-    return bool(re.search(r"(?im)^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-]", block))
+    # Exige sequencia contigua de opcoes A-E em ordem crescente (A,B ou A,B,C etc.)
+    keys = [o["key"] for o in options]
+    expected = ["A", "B", "C", "D", "E"]
+    for start in range(len(expected) - 1):
+        seq = expected[start : start + len(keys)]
+        if keys == seq[: len(keys)]:
+            return True
+    return False
 
 
 def parse_options(block: str) -> list[dict[str, str]]:
@@ -276,16 +283,33 @@ def clean_pdf_artifacts(block: str) -> str:
     for line in block.splitlines():
         line = PDF_BRANDING.sub("", line).strip()
         plain = re.sub(r"[*_`]", "", line).strip()
-        if (PAGE_COUNTER.fullmatch(plain) or (EXAM_SOURCE.fullmatch(plain) and not QUESTION_MARKER.search(plain))):
+
+        # Remover cabeçalhos/rodapés de apostilas Estratégia
+        if (
+            PAGE_COUNTER.fullmatch(plain)
+            or BRANDED_RUNNING_HEADER.match(plain)
+            or RUNNING_COURSE_HEADER.match(plain)
+            or re.search(r"(?i)\bestr(?:até|at[eé])gia\s+concursos\b", plain)
+        ):
             while cleaned and not cleaned[-1].strip():
                 cleaned.pop()
             skip_next_blank = True
             continue
-        if re.fullmatch(r"\d{1,3}\.\s+.{12,}", plain) and line.startswith(("**", "__")):
+
+        # Remover fontes de banca isoladas que não estão dentro de um bloco de questão
+        if EXAM_SOURCE.fullmatch(plain) and not QUESTION_MARKER.search(plain):
             while cleaned and not cleaned[-1].strip():
                 cleaned.pop()
             skip_next_blank = True
             continue
+
+        # Remover cabeçalhos numerados em negrito repetidos (artefatos de slide)
+        if re.fullmatch(r"(?i)(?:\*\*|__)?\s*\d{1,3}\.\s+.{12,}\s*(?:\*\*|__)?", plain) and line.startswith(("**", "__")):
+            while cleaned and not cleaned[-1].strip():
+                cleaned.pop()
+            skip_next_blank = True
+            continue
+
         if skip_next_blank and not line:
             continue
         skip_next_blank = False
@@ -613,54 +637,74 @@ def extract_pdf_to_markdown(pdf_path: Path) -> str:
 
     for page in doc:
         rect = page.rect
-        header_limit = rect.y0 + 35
-        footer_limit = rect.y1 - 25
+        # Margens mais generosas para cortar cabeçalhos/rodapés de slides
+        header_limit = rect.y0 + 50
+        footer_limit = rect.y1 - 40
+        page_width = rect.x1 - rect.x0
         d = page.get_text("dict")
         blocks = d.get("blocks", [])
 
+        # Apenas blocos de texto dentro das margens seguras
         valid_blocks = [
             b for b in blocks
             if b.get("type") == 0
             and b["bbox"][1] >= header_limit
             and b["bbox"][3] <= footer_limit
         ]
-        valid_blocks.sort(key=lambda b: (round(b["bbox"][1], -1), b["bbox"][0]))
+        # Ordenar por faixa vertical (bucket de 10pt) e depois por posição horizontal
+        valid_blocks.sort(key=lambda b: (round(b["bbox"][1] / 10) * 10, b["bbox"][0]))
+
+        # Detectar layout de duas colunas: se bloco central X > 55% da largura
+        def is_right_column(b: dict) -> bool:
+            left_x = b["bbox"][0] - rect.x0
+            return left_x > page_width * 0.52
 
         for b in valid_blocks:
             block_lines: list[str] = []
-            for l in b.get("lines", []):
-                spans = l.get("spans", [])
+            for ln in b.get("lines", []):
+                spans = ln.get("spans", [])
                 if not spans:
                     continue
                 line_text = "".join(s["text"] for s in spans).strip()
                 if not line_text:
                     continue
 
-                # Strip table of contents lines with leader dots
+                # Remover linhas de sumário (leader dots)
                 if len(re.findall(r"\.{4,}", line_text)) >= 1:
                     continue
+
+                # Remover cabeçalhos/rodapés comuns de apostilas
                 if (
                     PAGE_COUNTER.fullmatch(line_text)
                     or COURSE_METADATA.search(line_text)
                     or DOCUMENT_UPDATE.search(line_text)
+                    or BRANDED_RUNNING_HEADER.match(line_text)
+                    or RUNNING_COURSE_HEADER.match(line_text)
                 ):
+                    continue
+
+                # Remover linhas de promoção/branding
+                plain_text = re.sub(r"[*_`#]", "", line_text).strip()
+                if re.search(r"(?i)\bestr(?:até|at[eé])gia\s+concursos\b", plain_text):
+                    continue
+                if re.fullmatch(r"(?i)prof\.?\s+[\w\s.,''-]+", plain_text) and len(plain_text) < 80:
                     continue
 
                 max_size = max(s["size"] for s in spans)
                 is_bold = any("bold" in s["font"].lower() or s["flags"] & 2 for s in spans)
 
+                # Heurística de heading: número de seção ou tamanho grande
                 is_section_num = bool(re.match(r"^\d+(?:\.\d+)+\s+[A-ZÀ-Ú]", line_text))
-                if max_size >= 19:
+
+                if max_size >= 20:
                     line_formatted = f"# {line_text}"
-                elif max_size >= 14 or is_section_num:
+                elif max_size >= 15 or is_section_num:
                     line_formatted = f"## {line_text}"
-                elif is_bold and len(line_text) < 70 and line_text.endswith(":"):
+                elif is_bold and len(line_text) < 100 and re.search(r"[:：]$", line_text):
                     line_formatted = f"### {line_text}"
-                elif is_bold and (
-                    line_text.startswith("Questão")
-                    or line_text.startswith("Gabarito:")
-                    or line_text.startswith("Solução:")
-                    or line_text.startswith("Comentário:")
+                elif is_bold and re.match(
+                    r"(?i)^(?:questão|gabarito|solu[cç][aã]o|coment[aá]rio)\b",
+                    line_text,
                 ):
                     line_formatted = f"**{line_text}**"
                 else:
@@ -670,7 +714,23 @@ def extract_pdf_to_markdown(pdf_path: Path) -> str:
             if block_lines:
                 output_lines.append("\n".join(block_lines))
 
-    return "\n\n".join(output_lines)
+    text = "\n\n".join(output_lines)
+
+    # Pós-processamento: separar alternativas coladas (A)texto B)texto → linhas separadas
+    text = re.sub(
+        r"(?<!\n)(?=\s+(?:[B-E])\s*[\)\.]\s+\S)",
+        "\n",
+        text,
+    )
+    # Garantir que cada alternativa comece em nova linha
+    text = re.sub(
+        r"(?m)([^\n])(\s+)([A-E])\s*[\)\.]\s+",
+        lambda m: f"{m.group(1)}\n{m.group(3)}) ",
+        text,
+    )
+    # Remover múltiplas linhas em branco consecutivas
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def extract(root: Path, output: Path, source_format: str = "auto") -> dict[str, Any]:
@@ -792,8 +852,8 @@ def main() -> int:
     parser.add_argument(
         "--format",
         choices=["auto", "pdf", "md"],
-        default="auto",
-        help="Formato dos arquivos a processar: auto (prioriza PDF se disponível), pdf ou md (padrão: auto)",
+        default="pdf",
+        help="Formato dos arquivos a processar: pdf (padrão), auto (prioriza PDF se disponível) ou md",
     )
     args = parser.parse_args()
     try:
