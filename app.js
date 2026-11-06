@@ -283,10 +283,17 @@ function pendingImportStorageKey(userId) {
 }
 
 function storePendingImport(key, snapshot) {
-  const existingRaw = localStorage.getItem(key);
-  const existing = existingRaw ? JSON.parse(existingRaw) : {};
+  let existing = {};
+  try {
+    const existingRaw = localStorage.getItem(key);
+    existing = existingRaw ? JSON.parse(existingRaw) : {};
+  } catch (e) {
+    existing = {};
+  }
   const merged = mergeProgressSnapshots(snapshot, existing);
-  localStorage.setItem(key, JSON.stringify(merged));
+  try {
+    localStorage.setItem(key, JSON.stringify(merged));
+  } catch (e) {}
 }
 
 async function loadCloudProgress(user, generation) {
@@ -640,7 +647,7 @@ function inlineMarkdown(value) {
   });
   text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => {
     const safe = safeHref(url);
-    return safe ? `<span class="image-alt">[Imagem: ${alt || "visual"}</span>` : "";
+    return safe ? `<span class="image-alt">[Imagem: ${escapeHtml(alt || "visual")}]</span>` : "";
   });
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => {
     const safe = safeHref(url);
@@ -2804,6 +2811,12 @@ function cleanOptionText(text, key, question) {
     if (question?.id === "414a2c99cd5e37" && key === "B") {
       return "comparação.";
     }
+    if (question?.statement) {
+      const match = question.statement.match(new RegExp(`(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:[-*]\\s*)?(?:\\*\\*)?${key}(?:\\*\\*)?\\s*[\\)\\].:-]\\s*([^\\n]+)`, "i"));
+      if (match && match[1]?.trim()) {
+        return cleanOptionText(match[1].trim(), key, question);
+      }
+    }
     return "";
   }
   let clean = String(text).trim();
@@ -2822,9 +2835,10 @@ function renderOptionRows(question, { selected = null, answerKey = null, reveale
     else if (selected === option.key) classes += " selected";
     const isEliminated = eliminated.has(option.key);
     const cleanedText = cleanOptionText(option.text, option.key, question);
+    const textHtml = cleanedText ? inlineMarkdown(cleanedText) : `<em style="opacity:0.65;">(Alternativa ${escapeHtml(option.key)})</em>`;
     return `<div class="option-row ${isEliminated ? "eliminated" : ""}">
       <button class="${classes}" data-answer="${escapeHtml(option.key)}" ${canAnswer ? "" : "disabled"}>
-        <span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(cleanedText)}</span>
+        <span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${textHtml}</span>
       </button>
       <button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button>
     </div>`;
@@ -3308,7 +3322,8 @@ function renderSimulationQuestion(review = false) {
         const classes = ["option-button", status, selected === option.key && !revealed ? "selected" : ""].filter(Boolean).join(" ");
         const isEliminated = getEliminatedOptions(question.id).includes(option.key);
         const cleanedText = cleanOptionText(option.text, option.key, question);
-        return `<div class="option-row ${isEliminated ? "eliminated" : ""}"><button class="${classes}" data-answer="${escapeHtml(option.key)}" ${review ? "disabled" : ""}><span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${inlineMarkdown(cleanedText)}</span></button><button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button></div>`;
+        const textHtml = cleanedText ? inlineMarkdown(cleanedText) : `<em style="opacity:0.65;">(Alternativa ${escapeHtml(option.key)})</em>`;
+        return `<div class="option-row ${isEliminated ? "eliminated" : ""}"><button class="${classes}" data-answer="${escapeHtml(option.key)}" ${review ? "disabled" : ""}><span class="option-key">${escapeHtml(option.key)}</span><span class="option-text">${textHtml}</span></button><button class="eliminate-button ${isEliminated ? "active" : ""}" type="button" data-eliminate="${escapeHtml(option.key)}" aria-pressed="${isEliminated}" aria-label="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}" title="${isEliminated ? "Desfazer eliminação" : "Tachar alternativa"}">${isEliminated ? "Desfazer" : "Tachar"}</button></div>`;
       }).join("")}</div>
       ${revealed ? `<div class="feedback ${selected === question.answer ? "success" : selected ? "error" : "neutral"}">${selected ? (selected === question.answer ? "Resposta correta." : `Resposta incorreta. Gabarito: ${escapeHtml(question.answer)}.`) : `Questão não respondida. Gabarito: ${escapeHtml(question.answer)}.`}</div>${question.solution ? `<div class="solution-box"><h3>Resolução comentada</h3><div class="markdown-body">${renderMarkdown(question.solution)}</div></div>` : ""}` : ""}
       <div class="simulation-question-nav">${simulation.questions.map((item, itemIndex) => `<button type="button" class="simulation-index ${itemIndex === index ? "current" : ""} ${simulation.answers[item.id] ? "answered" : ""}" data-simulation-index="${itemIndex}" aria-label="Ir para questão ${itemIndex + 1}">${itemIndex + 1}</button>`).join("")}</div>
@@ -3464,10 +3479,29 @@ async function renderMindmaps() {
     const material = data.materials.find((item) => item.id === state.activeMaterialId) || data.materials[0];
     const headings = material ? [...material.content.matchAll(/^\s{0,3}#{1,4}\s+(.+)$/gm)].map((match) => match[1].replace(/[*_`]/g, "").trim()).filter(Boolean).slice(0, 16) : [];
     const maps = readStorage(STORAGE_KEYS.maps, []);
-    view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">VISUALIZE AS CONEXÕES</p><h1>Mapas mentais</h1><p class="page-subtitle">Explore os tópicos de cada material ou salve seus mapas e referências favoritos.</p></div></div>
+    view.innerHTML = `<div class="page-heading">
+        <div>
+          <p class="eyebrow">VISUALIZE AS CONEXÕES</p>
+          <h1>Mapas mentais</h1>
+          <p class="page-subtitle">Explore os tópicos de cada material ou salve seus mapas e referências favoritos.</p>
+        </div>
+        <div class="question-filter-bar">
+          <select class="select-control" id="map-subject" aria-label="Selecionar disciplina">
+            ${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}
+          </select>
+          <select class="select-control" id="map-material" aria-label="Selecionar material">
+            ${data.materials.map((m) => `<option value="${m.id}" ${m.id === (material?.id || "") ? "selected" : ""}>${escapeHtml(m.title)}</option>`).join("")}
+          </select>
+        </div>
+      </div>
       <div class="mindmap-layout"><section class="card map-canvas"><div class="map-center">${escapeHtml(material?.title || "Selecione um material")}</div><div class="map-branches">${headings.length ? headings.map((heading) => `<div class="map-node">${escapeHtml(heading)}</div>`).join("") : '<div class="empty-state">Este material não possui títulos para montar o mapa.</div>'}</div></section>
         <aside class="card map-tools"><h2>Seu acervo visual</h2><p>Adicione links para mapas externos ou imagens. Os dados ficam salvos só neste navegador.</p><form id="map-form"><label class="form-label" for="map-title">Nome do mapa</label><input class="form-control" id="map-title" required maxlength="100" placeholder="Ex.: Princípios tributários"><label class="form-label" for="map-url">Link ou imagem (URL)</label><input class="form-control" id="map-url" required type="url" placeholder="https://..."><button class="button" style="margin-top:12px;width:100%" type="submit">＋ Salvar referência</button></form>
         <div class="saved-maps"><h3>Referências salvas</h3><div id="saved-map-list">${renderSavedMaps(maps)}</div></div></aside></div>`;
+    document.getElementById("map-subject")?.addEventListener("change", (event) => setSubject(event.target.value));
+    document.getElementById("map-material")?.addEventListener("change", (event) => {
+      state.activeMaterialId = event.target.value;
+      renderMindmaps();
+    });
     document.getElementById("map-form").addEventListener("submit", (event) => {
       event.preventDefault();
       const title = document.getElementById("map-title").value.trim();
@@ -3502,18 +3536,32 @@ async function renderFlashcards() {
   try {
     const data = await loadSubject();
     const cards = data.materials.flatMap((material) => material.flashcards.map((card) => ({ ...card, materialTitle: material.title })));
+    const subjectSelector = `<select class="select-control" id="flashcard-subject" aria-label="Selecionar disciplina">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select>`;
     if (!cards.length) {
-      view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">REVISÃO ATIVA</p><h1>Flashcards</h1><p class="page-subtitle">${escapeHtml(data.subject.name)}</p></div></div><article class="card empty-state">Ainda não foi possível gerar cartões a partir dos títulos dos materiais nesta disciplina.</article>`;
+      view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">REVISÃO ATIVA</p><h1>Flashcards</h1><p class="page-subtitle">${escapeHtml(data.subject.name)}</p></div>${subjectSelector}</div><article class="card empty-state">Ainda não foi possível gerar cartões a partir dos títulos dos materiais nesta disciplina.</article>`;
+      document.getElementById("flashcard-subject")?.addEventListener("change", (event) => setSubject(event.target.value));
       return;
     }
-    state.flashcardIndex = Math.min(state.flashcardIndex, cards.length - 1);
+    state.flashcardIndex = Math.max(0, Math.min(state.flashcardIndex, cards.length - 1));
     const card = cards[state.flashcardIndex];
-    view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">REVISÃO ATIVA</p><h1>Flashcards</h1><p class="page-subtitle">Recupere o conceito antes de virar o cartão para conferir.</p></div><select class="select-control" id="flashcard-subject" aria-label="Selecionar disciplina">${state.manifest.subjects.map((subject) => `<option value="${subject.id}" ${subject.id === data.subject.id ? "selected" : ""}>${escapeHtml(subject.name)}</option>`).join("")}</select></div>
+    view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">REVISÃO ATIVA</p><h1>Flashcards</h1><p class="page-subtitle">Recupere o conceito antes de virar o cartão para conferir.</p></div>${subjectSelector}</div>
       <div class="flashcard-wrap"><button class="flashcard ${state.flashcardFlipped ? "flipped" : ""}" id="flashcard" aria-label="Virar flashcard"><span class="flashcard-label">${state.flashcardFlipped ? "RESPOSTA" : "CONCEITO"}</span><span class="flashcard-text">${escapeHtml(state.flashcardFlipped ? card.back : card.front)}</span><span class="flashcard-source">${escapeHtml(card.materialTitle)} · clique para virar</span></button><div class="flashcard-controls"><button class="button secondary" id="previous-card" ${state.flashcardIndex === 0 ? "disabled" : ""}>← Anterior</button><span class="card-progress">${state.flashcardIndex + 1} / ${cards.length}</span><button class="button" id="next-card" ${state.flashcardIndex >= cards.length - 1 ? "disabled" : ""}>Próximo →</button></div><p class="keyboard-hint">Dica: use ← e → para navegar e espaço para virar o cartão.</p></div>`;
-    document.getElementById("flashcard-subject").addEventListener("change", (event) => setSubject(event.target.value));
-    document.getElementById("flashcard").addEventListener("click", () => { state.flashcardFlipped = !state.flashcardFlipped; renderFlashcards(); });
-    document.getElementById("previous-card").addEventListener("click", () => { state.flashcardIndex -= 1; state.flashcardFlipped = false; renderFlashcards(); });
-    document.getElementById("next-card").addEventListener("click", () => { state.flashcardIndex += 1; state.flashcardFlipped = false; renderFlashcards(); });
+    document.getElementById("flashcard-subject")?.addEventListener("change", (event) => setSubject(event.target.value));
+    document.getElementById("flashcard")?.addEventListener("click", () => { state.flashcardFlipped = !state.flashcardFlipped; renderFlashcards(); });
+    document.getElementById("previous-card")?.addEventListener("click", () => {
+      if (state.flashcardIndex > 0) {
+        state.flashcardIndex -= 1;
+        state.flashcardFlipped = false;
+        renderFlashcards();
+      }
+    });
+    document.getElementById("next-card")?.addEventListener("click", () => {
+      if (state.flashcardIndex < cards.length - 1) {
+        state.flashcardIndex += 1;
+        state.flashcardFlipped = false;
+        renderFlashcards();
+      }
+    });
   } catch (error) {
     console.error(error);
     view.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
@@ -3539,13 +3587,19 @@ document.addEventListener("keydown", (event) => {
     state.flashcardFlipped = !state.flashcardFlipped;
     renderFlashcards();
   } else if (event.key === "ArrowRight") {
-    state.flashcardIndex += 1;
-    state.flashcardFlipped = false;
-    renderFlashcards();
-  } else if (event.key === "ArrowLeft" && state.flashcardIndex > 0) {
-    state.flashcardIndex -= 1;
-    state.flashcardFlipped = false;
-    renderFlashcards();
+    const nextBtn = document.getElementById("next-card");
+    if (nextBtn && !nextBtn.disabled) {
+      state.flashcardIndex += 1;
+      state.flashcardFlipped = false;
+      renderFlashcards();
+    }
+  } else if (event.key === "ArrowLeft") {
+    const prevBtn = document.getElementById("previous-card");
+    if (prevBtn && !prevBtn.disabled && state.flashcardIndex > 0) {
+      state.flashcardIndex -= 1;
+      state.flashcardFlipped = false;
+      renderFlashcards();
+    }
   }
 });
 

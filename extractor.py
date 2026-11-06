@@ -17,7 +17,7 @@ QUESTION_MARKER = re.compile(
     r"(?i)(?:\|?[ \t]*(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*\|?)(?:[ \t]*|<br\s*/?>)*(?:n[º°o]\s*)?\d{1,}"
 )
 OPTION_MARKER = re.compile(
-    r"^\s*(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*(.*)$",
+    r"^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*(.*)$",
     re.I | re.M,
 )
 ANSWER_MARKER = re.compile(
@@ -114,7 +114,7 @@ def is_question_candidate(block: str) -> bool:
     options = parse_options(block)
     if len(options) < 2:
         return False
-    return bool(re.search(r"(?im)^\s*(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-]", block))
+    return bool(re.search(r"(?im)^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-]", block))
 
 
 def parse_options(block: str) -> list[dict[str, str]]:
@@ -124,37 +124,63 @@ def parse_options(block: str) -> list[dict[str, str]]:
         boundaries.append(answer_matches[-1].start())
     if boundaries:
         block = block[:min(boundaries)]
-    options: list[dict[str, str]] = []
+    raw_options: list[dict[str, str]] = []
     current: dict[str, str] | None = None
     previous_blank = False
     for line in block.splitlines():
         match = OPTION_MARKER.match(line)
         if match:
             current = {"key": match.group(1).upper(), "text": match.group(2).strip()}
-            options.append(current)
+            raw_options.append(current)
             previous_blank = False
         elif not line.strip():
-            previous_blank = True
-        elif current and not previous_blank:
+            if current and current["text"]:
+                previous_blank = True
+        elif current and (not previous_blank or not current["text"]):
             if not re.search(
                 r"(?i)(?:\d+/\d+|Estrat[eé]gia\s+Concursos|^#{1,6}\s)",
                 line,
             ):
                 current["text"] = f"{current['text']} {line.strip()}".strip()
+                previous_blank = False
+            else:
+                current = None
         else:
             current = None
-    return options
+
+    valid_options: list[dict[str, str]] = []
+    expected_order = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+    last_idx = -1
+    for opt in raw_options:
+        idx = expected_order.get(opt["key"], -1)
+        if idx > last_idx:
+            valid_options.append(opt)
+            last_idx = idx
+        elif valid_options:
+            suffix = f" {opt['key']}) {opt['text']}".strip()
+            valid_options[-1]["text"] = f"{valid_options[-1]['text']} {suffix}".strip()
+
+    for opt in valid_options:
+        opt["text"] = re.sub(r"\s*-\s*$", "", opt["text"]).strip()
+        opt["text"] = re.sub(
+            r"\s*(?:\*{1,2}|_{1,2})?\s*(?:solu[cç][aã]o|gabarito|coment[aá]rio)\s*[:：]?\s*(?:\*{1,2}|_{1,2})?.*$",
+            "",
+            opt["text"],
+            flags=re.I,
+        ).strip()
+
+    return valid_options
 
 
 def normalize_question_layout(block: str) -> str:
     block = re.sub(r"(?i)<br\s*/?>", "\n", block)
     block = re.sub(
-        r"(?im)^\s*(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*\n+\s*(?:[-*]\s+)?",
+        r"(?im)^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*\n+\s*(?:[-*]\s+)?",
         r"- \1) ",
         block,
     )
     block = re.sub(
-        r"(?m)(?<!^)(?<!\n)[ \t]+(?=(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-](?:\s|<|$))",
+        r"(?m)(?<!^)(?<!\n)[ \t]+(?=(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?[A-E](?:\*\*)?\s*[\)\]:-]|(?:#{1,6}\s*|[-*]\s+)(?:\*\*)?[A-E](?:\*\*)?\s*[\)\].:-](?:\s|<|$))",
         "\n",
         block,
     )

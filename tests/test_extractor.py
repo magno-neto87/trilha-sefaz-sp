@@ -466,6 +466,36 @@ Escrituração \ufffd Técnica contábil
         self.assertIn("Finalidade → Fornecer informações", cleaned)
         self.assertIn("Escrituração → Técnica contábil", cleaned)
 
+    def test_parses_heading_prefix_options_and_preserves_order(self):
+        source = """**Questão** 4002266079
+Enunciado sobre regime específico:
+
+###### A)
+
+Texto da alternativa A sobre alíquota zero.
+
+###### B)
+
+Texto da alternativa B com gasolina A.
+
+###### C)
+
+Texto da alternativa C sobre cooperativas.
+
+###### **Solução:**
+Gabarito: C) correta.
+Comentário completo.
+"""
+        theory, questions = extract_questions(source, "Disciplina/aula.md")
+        self.assertEqual(len(questions), 1)
+        q = questions[0]
+        self.assertEqual(len(q["options"]), 3)
+        self.assertEqual([opt["key"] for opt in q["options"]], ["A", "B", "C"])
+        self.assertIn("Texto da alternativa A sobre alíquota zero.", q["options"][0]["text"])
+        self.assertIn("Texto da alternativa B com gasolina A.", q["options"][1]["text"])
+        self.assertIn("Texto da alternativa C sobre cooperativas.", q["options"][2]["text"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
