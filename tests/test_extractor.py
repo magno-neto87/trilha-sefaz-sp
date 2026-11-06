@@ -8,6 +8,7 @@ from extractor import (
     clean_promotional_content,
     clean_content_artifacts,
     extract,
+    extract_pdf_to_markdown,
     extract_questions,
     generate_flashcards,
     normalize_answer,
@@ -494,6 +495,75 @@ Comentário completo.
         self.assertIn("Texto da alternativa A sobre alíquota zero.", q["options"][0]["text"])
         self.assertIn("Texto da alternativa B com gasolina A.", q["options"][1]["text"])
         self.assertIn("Texto da alternativa C sobre cooperativas.", q["options"][2]["text"])
+
+    def test_extracts_clean_markdown_and_questions_from_pdf(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("pymupdf não está instalado")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "teste.pdf"
+            doc = pymupdf.open()
+            page = doc.new_page(width=595, height=842)
+
+            page.insert_text((50, 25), "Cabeçalho a ser ignorado", fontsize=8)
+            page.insert_text((50, 70), "2.1 Conceitos Fundamentais", fontsize=16)
+            page.insert_text((50, 100), "Questão 999888", fontsize=12)
+            page.insert_text((50, 120), "2023 FGV SEFAZ SP", fontsize=11)
+            page.insert_text((50, 140), "Assinale a alternativa correta sobre auditoria.", fontsize=11)
+            page.insert_text((50, 170), "A) Primeira alternativa incorreta.", fontsize=11)
+            page.insert_text((50, 190), "B) Segunda alternativa correta.", fontsize=11)
+            page.insert_text((50, 220), "Gabarito: B) Segunda alternativa correta.", fontsize=11)
+            page.insert_text((50, 240), "Solução:", fontsize=12)
+            page.insert_text((50, 260), "Comentário detalhado da resposta.", fontsize=11)
+            page.insert_text((50, 825), "Rodapé e número da página 1/10", fontsize=8)
+
+            doc.save(pdf_path)
+
+            md = extract_pdf_to_markdown(pdf_path)
+            self.assertIn("## 2.1 Conceitos Fundamentais", md)
+            self.assertNotIn("Cabeçalho a ser ignorado", md)
+            self.assertNotIn("Rodapé e número", md)
+
+            theory, questions = extract_questions(md, "Disciplina/teste.pdf")
+            self.assertEqual(len(questions), 1)
+            self.assertEqual(questions[0]["number"], "Questão 999888")
+            self.assertEqual(questions[0]["bank"], "FGV")
+            self.assertEqual(questions[0]["answer"], "B")
+            self.assertEqual(len(questions[0]["options"]), 2)
+            self.assertIn("Primeira alternativa incorreta.", questions[0]["options"][0]["text"])
+            self.assertIn("Segunda alternativa correta.", questions[0]["options"][1]["text"])
+
+    def test_extract_supports_pdf_and_format_options(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("pymupdf não está instalado")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "materials"
+            subject = root / "Direito Tributário"
+            subject.mkdir(parents=True)
+            output = Path(temp_dir) / "data"
+
+            # Create PDF file
+            pdf_path = subject / "1. Aula.pdf"
+            doc = pymupdf.open()
+            page = doc.new_page(width=595, height=842)
+            page.insert_text((50, 70), "1.1 Tributos", fontsize=16)
+            page.insert_text((50, 100), "Questão 112233", fontsize=12)
+            page.insert_text((50, 120), "Assinale a alternativa correta:", fontsize=11)
+            page.insert_text((50, 140), "A) Primeira opção.", fontsize=11)
+            page.insert_text((50, 160), "B) Segunda opção.", fontsize=11)
+            page.insert_text((50, 190), "Gabarito: A", fontsize=11)
+            doc.save(pdf_path)
+
+            manifest = extract(root, output, source_format="pdf")
+            self.assertEqual(manifest["totals"]["subjects"], 1)
+            self.assertEqual(manifest["totals"]["materials"], 1)
+            self.assertEqual(manifest["totals"]["questions"], 1)
+
 
 
 

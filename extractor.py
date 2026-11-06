@@ -12,6 +12,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    import pymupdf
+except ImportError:
+    pymupdf = None
+
 
 QUESTION_MARKER = re.compile(
     r"(?i)(?:\|?[ \t]*(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*\|?)(?:[ \t]*|<br\s*/?>)*(?:n[º°o]\s*)?\d{1,}"
@@ -586,7 +591,76 @@ def generate_flashcards(markdown: str, source: str) -> list[dict[str, str]]:
     return cards
 
 
-def extract(root: Path, output: Path) -> dict[str, Any]:
+def extract_pdf_to_markdown(pdf_path: Path) -> str:
+    """Extract clean markdown-like text from a PDF file using PyMuPDF."""
+    if pymupdf is None:
+        raise RuntimeError("Para processar arquivos PDF, instale o pacote pymupdf: pip install pymupdf")
+    doc = pymupdf.open(pdf_path)
+    output_lines: list[str] = []
+
+    for page in doc:
+        rect = page.rect
+        header_limit = rect.y0 + 45
+        footer_limit = rect.y1 - 42
+        d = page.get_text("dict")
+        blocks = d.get("blocks", [])
+
+        valid_blocks = [
+            b for b in blocks
+            if b.get("type") == 0
+            and b["bbox"][1] >= header_limit
+            and b["bbox"][3] <= footer_limit
+        ]
+        valid_blocks.sort(key=lambda b: (round(b["bbox"][1], -1), b["bbox"][0]))
+
+        for b in valid_blocks:
+            block_lines: list[str] = []
+            for l in b.get("lines", []):
+                spans = l.get("spans", [])
+                if not spans:
+                    continue
+                line_text = "".join(s["text"] for s in spans).strip()
+                if not line_text:
+                    continue
+
+                # Strip table of contents lines with leader dots
+                if len(re.findall(r"\.{4,}", line_text)) >= 1:
+                    continue
+                if (
+                    PAGE_COUNTER.fullmatch(line_text)
+                    or COURSE_METADATA.search(line_text)
+                    or DOCUMENT_UPDATE.search(line_text)
+                ):
+                    continue
+
+                max_size = max(s["size"] for s in spans)
+                is_bold = any("bold" in s["font"].lower() or s["flags"] & 2 for s in spans)
+
+                is_section_num = bool(re.match(r"^\d+(?:\.\d+)+\s+[A-ZÀ-Ú]", line_text))
+                if max_size >= 19:
+                    line_formatted = f"# {line_text}"
+                elif max_size >= 14 or is_section_num:
+                    line_formatted = f"## {line_text}"
+                elif is_bold and len(line_text) < 70 and line_text.endswith(":"):
+                    line_formatted = f"### {line_text}"
+                elif is_bold and (
+                    line_text.startswith("Questão")
+                    or line_text.startswith("Gabarito:")
+                    or line_text.startswith("Solução:")
+                    or line_text.startswith("Comentário:")
+                ):
+                    line_formatted = f"**{line_text}**"
+                else:
+                    line_formatted = line_text
+                block_lines.append(line_formatted)
+
+            if block_lines:
+                output_lines.append("\n".join(block_lines))
+
+    return "\n\n".join(output_lines)
+
+
+def extract(root: Path, output: Path, source_format: str = "auto") -> dict[str, Any]:
     root = root.resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"Pasta de origem não encontrada: {root}")
@@ -599,18 +673,29 @@ def extract(root: Path, output: Path) -> dict[str, Any]:
 
     for subject_dir in subject_dirs:
         materials: list[dict[str, Any]] = []
-        source_files = sorted(subject_dir.rglob("*.md"), key=lambda p: str(p).casefold())
+        if source_format == "pdf":
+            source_files = sorted(subject_dir.rglob("*.pdf"), key=lambda p: str(p).casefold())
+        elif source_format == "md":
+            source_files = sorted(subject_dir.rglob("*.md"), key=lambda p: str(p).casefold())
+        else:  # auto: prefer pdf if available in subject_dir, else md
+            source_files = sorted(subject_dir.rglob("*.pdf"), key=lambda p: str(p).casefold())
+            if not source_files:
+                source_files = sorted(subject_dir.rglob("*.md"), key=lambda p: str(p).casefold())
         if not source_files:
             continue
         for source in source_files:
             relative = source.relative_to(root).as_posix()
-            markdown = source.read_text(encoding="utf-8-sig", errors="replace")
+            canonical_relative = source.with_suffix(".md").relative_to(root).as_posix()
+            if source.suffix.lower() == ".pdf":
+                markdown = extract_pdf_to_markdown(source)
+            else:
+                markdown = source.read_text(encoding="utf-8-sig", errors="replace")
             theory, questions = extract_questions(markdown, relative)
             theory = clean_promotional_content(theory)
             title = clean_title(source)
             cards = generate_flashcards(theory, relative)
             material = {
-                "id": stable_id(relative),
+                "id": stable_id(canonical_relative),
                 "title": title,
                 "source": relative,
                 "content": theory,
@@ -691,10 +776,16 @@ def main() -> int:
         default=Path(__file__).resolve().parent / "data",
         help="Pasta de saída dos arquivos JSON (padrão: ./data)",
     )
+    parser.add_argument(
+        "--format",
+        choices=["auto", "pdf", "md"],
+        default="auto",
+        help="Formato dos arquivos a processar: auto (prioriza PDF se disponível), pdf ou md (padrão: auto)",
+    )
     args = parser.parse_args()
     try:
-        manifest = extract(args.source, args.output)
-    except (OSError, ValueError) as error:
+        manifest = extract(args.source, args.output, source_format=args.format)
+    except (OSError, ValueError, RuntimeError) as error:
         print(f"Erro ao extrair materiais: {error}", file=sys.stderr)
         return 1
     totals = manifest["totals"]
