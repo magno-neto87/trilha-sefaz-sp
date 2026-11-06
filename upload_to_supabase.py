@@ -100,7 +100,7 @@ def main():
 
     print(f"\nFinalizado: {success}/{total} arquivos enviados com sucesso para o bucket '{BUCKET_NAME}'.")
     if success == total:
-        print("O site agora refletira a nova extracao com 7.674 questoes ao recarregar a pagina.")
+        print(f"O site agora refletira a nova extracao com {totals.get('questions', 0):,} questoes ao recarregar a pagina.")
 
 
 if __name__ == "__main__":

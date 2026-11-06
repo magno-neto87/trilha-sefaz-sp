@@ -19,7 +19,9 @@ except ImportError:
 
 
 QUESTION_MARKER = re.compile(
-    r"(?i)(?:\|?[ \t]*(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*\|?)(?:[ \t]*|<br\s*/?>)*(?:n[º°o]\s*)?\d{1,}"
+    r"(?:\|?[ \t]*(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*\|?)(?:[ \t]*|<br\s*/?>)*(?:n[º°o]\s*)?\d{1,}|"
+    r"(?:^|\n)[ \t]*(?:#{1,4}\s*quest[aã]o\b.*$|(?:\*\*|__)?\bquest[aã]o(?:\*\*|__)?\s*[:：]|\bquest[aã]o\s+adaptada\b|quest[aã]o\s*$)",
+    re.I | re.M,
 )
 OPTION_MARKER = re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?(?:\*\*)?([A-E])(?:\*\*)?\s*[\)\].:-]\s*(.*)$",
@@ -348,14 +350,25 @@ def question_from_block(
 ) -> dict[str, Any]:
     block = clean_pdf_artifacts(normalize_question_layout(block))
     match = QUESTION_MARKER.search(block)
-    question_number = (
-        re.sub(r"\s+", " ", re.sub(r"[|*_`]", "", match.group(0))).strip()
+    raw_num = (
+        re.sub(r"\s+", " ", re.sub(r"[|*_`#]", "", match.group(0))).strip()
         if match else f"Questão {occurrence}"
     )
-    question_number = re.sub(r"^[|\s]+|[|\s]+$", "", question_number).strip()
+    num_match = re.search(r"\b(?:n[º°o]\s*)?(\d+)\b", raw_num)
+    if num_match:
+        question_number = f"Questão {num_match.group(1)}"
+    else:
+        ext_match = re.search(r"\b\d{6,}\b", block)
+        if ext_match:
+            question_number = f"Questão {ext_match.group(0)}"
+        else:
+            question_number = f"Questão {occurrence}"
     options = parse_options(block)
     solution_match = SOLUTION_MARKER.search(block)
     solution = block[solution_match.end():].strip() if solution_match else ""
+    nested_q = QUESTION_MARKER.search(solution)
+    if nested_q:
+        solution = solution[:nested_q.start()].strip()
     # Remove repeated answer lines from the displayed explanation, not from its source.
     solution = re.sub(
         r"(?im)^\s*(?:\*\*)?(?:gabarito|resposta correta)\s*[:：\-].*$",
@@ -600,8 +613,8 @@ def extract_pdf_to_markdown(pdf_path: Path) -> str:
 
     for page in doc:
         rect = page.rect
-        header_limit = rect.y0 + 45
-        footer_limit = rect.y1 - 42
+        header_limit = rect.y0 + 35
+        footer_limit = rect.y1 - 25
         d = page.get_text("dict")
         blocks = d.get("blocks", [])
 

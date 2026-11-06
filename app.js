@@ -486,7 +486,8 @@ async function loadPrivateJson(path) {
   }
   const userId = state.authUser.id;
   const bucket = window.TRILHA_SUPABASE_CONFIG.materialsBucket || "study-materials";
-  const { data, error } = await state.supabase.storage.from(bucket).download(path);
+  const cacheBustPath = `${path}?t=${Date.now()}`;
+  const { data, error } = await state.supabase.storage.from(bucket).download(cacheBustPath);
   if (error) throw error;
   if (state.authUser?.id !== userId || !state.cloudReady) {
     throw new Error("A sessão terminou antes que o material fosse carregado.");

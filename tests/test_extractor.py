@@ -160,6 +160,52 @@ Explicação da resposta correta.
         self.assertEqual([option["key"] for option in question["options"]], ["A", "B"])
         self.assertIn("Teoria antes.", theory)
 
+    def test_does_not_swallow_subsequent_question_or_mix_answers(self):
+        source = """## Questão
+2017
+IESES
+Gas Brasiliano Distribuidora
+61973901
+A diferença entre o montante e o capital investido chama-se?
+A) Juros.
+B) Capital inicial.
+C) Valor futuro.
+D) Valor presente.
+## Solução
+Gabarito: A) Juros.
+LETRA A. Explicação detalhada da primeira questão.
+Portanto chama-se JUROS.
+
+2020
+Instituto AOCP
+## Questão
+Engenheiro Químico
+4000662938
+O Banco Central do Brasil define empréstimo...
+A) R$ 5.500,00.
+B) R$ 1.500,00.
+C) R$ 500,00.
+D) R$ 2.500,00.
+E) R$ 5.000,00.
+## Solução
+Gabarito: C) R$ 500,00.
+GABARITO: ALTERNATIVA C.
+Explicação da segunda questão.
+"""
+        theory, questions = extract_questions(source, "Matemática Financeira/1. Juros Simples.md")
+        self.assertEqual(len(questions), 2)
+        q1 = questions[0]
+        q2 = questions[1]
+        self.assertEqual(q1["answer"], "A")
+        self.assertEqual([opt["key"] for opt in q1["options"]], ["A", "B", "C", "D"])
+        self.assertNotIn("4000662938", q1["solution"])
+        self.assertNotIn("Banco Central", q1["solution"])
+        self.assertNotIn("GABARITO: ALTERNATIVA C", q1["solution"])
+
+        self.assertEqual(q2["answer"], "C")
+        self.assertEqual([opt["key"] for opt in q2["options"]], ["A", "B", "C", "D", "E"])
+        self.assertIn("Banco Central", q2["statement"])
+
     def test_removes_standalone_page_counters_from_theory(self):
         source = """## Conteúdo
 
