@@ -17,9 +17,9 @@
       } catch(e) {}
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=resumos-tributario-1">
+  <link rel="stylesheet" href="styles.css?v=collapse-sidebar-1">
   <script src="supabase-config.js?v=private-materials-2" defer></script>
-  <script src="app.js?v=resumos-tributario-1" defer></script>
+  <script src="app.js?v=collapse-sidebar-1" defer></script>
 </head>
 <body>
   <div class="auth-gate" id="auth-gate">
@@ -60,12 +60,20 @@
   </div>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
-      <a class="brand" href="#" aria-label="Trilha, início">
-        <span class="brand-mark">T</span>
-        <span><strong>TRILHA</strong><small>SEFAZ-SP PREP</small></span>
-      </a>
-      <div class="sidebar-label">ESPAÇO DE ESTUDO</div>
-      <nav class="primary-nav" aria-label="Navegação principal">
+      <div class="sidebar-header-row">
+        <a class="brand" href="#" aria-label="Trilha, início">
+          <span class="brand-mark">T</span>
+          <span><strong>TRILHA</strong><small>SEFAZ-SP PREP</small></span>
+        </a>
+        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" type="button" title="Recolher menu lateral (Ctrl+B)" aria-label="Recolher menu lateral">
+          <span class="collapse-icon">◀</span>
+        </button>
+      </div>
+      <div class="sidebar-label collapsible" id="toggle-nav-section" title="Clique para recolher/expandir">
+        <span>ESPAÇO DE ESTUDO</span>
+        <span class="collapse-arrow" id="nav-section-arrow">▾</span>
+      </div>
+      <nav class="primary-nav" id="primary-nav" aria-label="Navegação principal">
         <button class="nav-link active" data-tab="dashboard"><span class="nav-icon">⌂</span>Visão geral</button>
         <button class="nav-link" data-tab="contents"><span class="nav-icon">▤</span>Conteúdos</button>
         <button class="nav-link" data-tab="resumos"><span class="nav-icon">📖</span>Resumos<span class="nav-count" id="resumo-count">—</span></button>
@@ -75,7 +83,10 @@
         <button class="nav-link" data-tab="organization"><span class="nav-icon">▦</span>Organização dos estudos</button>
       </nav>
       <div class="sidebar-subjects">
-        <div class="sidebar-label subject-label">SUAS DISCIPLINAS <span id="subject-count">—</span></div>
+        <div class="sidebar-label subject-label collapsible" id="toggle-subject-section" title="Clique para recolher/expandir">
+          <span>SUAS DISCIPLINAS <span id="subject-count">—</span></span>
+          <span class="collapse-arrow" id="subject-section-arrow">▾</span>
+        </div>
         <div id="subject-list" class="subject-list"></div>
       </div>
       <div class="sidebar-bottom">
@@ -90,6 +101,7 @@
 
     <main class="main-area">
       <header class="topbar">
+        <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" type="button" aria-label="Recolher / expandir menu lateral (Ctrl+B)" title="Recolher / expandir menu lateral (Ctrl+B)">☰</button>
         <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
         <div class="breadcrumbs"><span>SEFAZ-SP</span><span class="crumb-sep">/</span><strong id="breadcrumb">Visão geral</strong></div>
         <div class="top-actions">

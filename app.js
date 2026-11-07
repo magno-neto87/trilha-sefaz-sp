@@ -22,6 +22,10 @@ const STORAGE_KEYS = {
   readingPositions: "trilha-reading-positions-v1",
   calendarCompletions: "trilha-calendar-completions-v1",
   completedResumos: "trilha-completed-resumos-v1",
+  sidebarCollapsed: "trilha-sidebar-collapsed-v1",
+  resumosListView: "trilha-resumos-list-view-v1",
+  navSectionCollapsed: "trilha-nav-section-collapsed-v1",
+  subjectsSectionCollapsed: "trilha-subjects-section-collapsed-v1",
 };
 const state = {
   manifest: null,
@@ -2923,6 +2927,8 @@ async function renderResumos() {
     }
 
     const completed = readStorage(STORAGE_KEYS.completedResumos, {});
+    const listView = readStorage(STORAGE_KEYS.resumosListView, { hidden: false });
+    const isListHidden = listView.hidden === true;
     const totalCount = data.resumos.length;
     const completedCount = data.resumos.filter((r) => completed[r.id]).length;
     const percent = Math.round((completedCount / totalCount) * 100);
@@ -2953,9 +2959,14 @@ async function renderResumos() {
         </div>
       </div>
 
-      <div class="resumos-layout">
-        <aside class="resumos-sidebar card">
+      <div class="resumos-layout ${isListHidden ? "list-hidden" : ""}">
+        <aside class="resumos-sidebar card ${isListHidden ? "hidden" : ""}">
           <div class="resumos-sidebar-header">
+            <div class="resumos-header-title-row">
+              <span>Lista de Resumos (${totalCount})</span>
+              <button class="hide-resumos-btn" id="hide-resumos-btn" type="button" title="Recolher lista de resumos">◀ Recolher</button>
+            </div>
+
             <div class="resumos-progress-box">
               <div class="resumos-progress-header">
                 <span>Progresso dos Resumos</span>
@@ -3002,6 +3013,11 @@ async function renderResumos() {
         <section class="resumo-viewer-card card">
           <div class="resumo-viewer-toolbar">
             <div class="resumo-toolbar-left">
+              ${isListHidden ? `
+                <button class="show-resumos-list-btn" id="show-resumos-list-btn" type="button" title="Mostrar lista lateral de resumos">
+                  📖 Mostrar resumos (${totalCount})
+                </button>
+              ` : ""}
               <span class="resumo-lesson-badge" style="font-size: 11px;">Aula ${String(activeResumo.order).padStart(2, "0")} de ${totalCount}</span>
               <button class="resumo-toggle-btn ${isCompleted ? "completed" : ""}" id="toggle-resumo-completed-btn" type="button">
                 ${isCompleted ? "✓ Resumo Concluído" : "○ Marcar como estudado"}
@@ -3102,6 +3118,15 @@ async function renderResumos() {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     };
+
+    document.getElementById("hide-resumos-btn")?.addEventListener("click", () => {
+      writeStorage(STORAGE_KEYS.resumosListView, { hidden: true });
+      renderResumos();
+    });
+    document.getElementById("show-resumos-list-btn")?.addEventListener("click", () => {
+      writeStorage(STORAGE_KEYS.resumosListView, { hidden: false });
+      renderResumos();
+    });
 
     document.getElementById("prev-resumo-btn")?.addEventListener("click", goToPrev);
     document.getElementById("footer-prev-resumo-btn")?.addEventListener("click", goToPrev);
@@ -3816,18 +3841,78 @@ async function renderFlashcards() {
 }
 
 document.querySelectorAll(".nav-link").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
-document.getElementById("mobile-menu").addEventListener("click", () => {
+
+// Sidebar collapse & toggle logic
+const initialSidebarCollapsed = readStorage(STORAGE_KEYS.sidebarCollapsed, false);
+if (initialSidebarCollapsed) {
+  document.body.classList.add("sidebar-collapsed");
+}
+
+function toggleSidebar() {
+  if (window.innerWidth <= 820) {
+    document.getElementById("sidebar").classList.toggle("open");
+    document.getElementById("mobile-scrim").classList.toggle("visible");
+  } else {
+    const isCollapsed = document.body.classList.toggle("sidebar-collapsed");
+    writeStorage(STORAGE_KEYS.sidebarCollapsed, isCollapsed);
+  }
+}
+
+document.getElementById("sidebar-toggle-btn")?.addEventListener("click", toggleSidebar);
+document.getElementById("mobile-menu")?.addEventListener("click", () => {
   document.getElementById("sidebar").classList.toggle("open");
   document.getElementById("mobile-scrim").classList.toggle("visible");
 });
-document.getElementById("mobile-scrim").addEventListener("click", () => {
+document.getElementById("sidebar-collapse-btn")?.addEventListener("click", () => {
+  if (window.innerWidth <= 820) {
+    document.getElementById("sidebar").classList.remove("open");
+    document.getElementById("mobile-scrim").classList.remove("visible");
+  } else {
+    document.body.classList.add("sidebar-collapsed");
+    writeStorage(STORAGE_KEYS.sidebarCollapsed, true);
+  }
+});
+document.getElementById("mobile-scrim")?.addEventListener("click", () => {
   document.getElementById("sidebar").classList.remove("open");
   document.getElementById("mobile-scrim").classList.remove("visible");
 });
+
+// Collapsible navigation sections in sidebar
+const navCollapsed = readStorage(STORAGE_KEYS.navSectionCollapsed, false);
+const subjectsCollapsed = readStorage(STORAGE_KEYS.subjectsSectionCollapsed, false);
+
+if (navCollapsed) {
+  document.getElementById("toggle-nav-section")?.classList.add("collapsed");
+  document.getElementById("primary-nav")?.classList.add("section-collapsed");
+}
+if (subjectsCollapsed) {
+  document.getElementById("toggle-subject-section")?.classList.add("collapsed");
+  document.getElementById("subject-list")?.classList.add("section-collapsed");
+}
+
+document.getElementById("toggle-nav-section")?.addEventListener("click", () => {
+  const isNowCollapsed = document.getElementById("primary-nav")?.classList.toggle("section-collapsed");
+  document.getElementById("toggle-nav-section")?.classList.toggle("collapsed", isNowCollapsed);
+  writeStorage(STORAGE_KEYS.navSectionCollapsed, isNowCollapsed);
+});
+
+document.getElementById("toggle-subject-section")?.addEventListener("click", () => {
+  const isNowCollapsed = document.getElementById("subject-list")?.classList.toggle("section-collapsed");
+  document.getElementById("toggle-subject-section")?.classList.toggle("collapsed", isNowCollapsed);
+  writeStorage(STORAGE_KEYS.subjectsSectionCollapsed, isNowCollapsed);
+});
+
 document.getElementById("help-button").addEventListener("click", () => {
   showNotice("Os materiais são carregados do armazenamento privado somente depois que sua conta é autenticada. Seu histórico também é sincronizado com sua conta Supabase.");
 });
 document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+    if (!["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+      event.preventDefault();
+      toggleSidebar();
+      return;
+    }
+  }
   if (state.activeTab !== "flashcards" || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
   if (event.code === "Space") {
     event.preventDefault();
