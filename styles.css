@@ -2241,3 +2241,358 @@ h3 { font: 700 13px var(--font-heading); color: var(--ink-strong); }
 .empty-state-actions {
   margin-top: 14px;
 }
+
+/* ==========================================================================
+   Resumos Esquematizados - Tab Styles
+   ========================================================================== */
+.resumos-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 600px;
+  align-items: start;
+}
+.resumos-sidebar {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.resumos-sidebar-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.resumos-progress-box {
+  background: var(--surface-hover);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.resumos-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.resumos-progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.resumos-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.resumos-filter-row {
+  display: flex;
+  gap: 6px;
+}
+.resumos-filter-btn {
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: 1;
+  text-align: center;
+}
+.resumos-filter-btn.active, .resumos-filter-btn:hover {
+  background: var(--blue-soft);
+  border-color: var(--blue-border);
+  color: var(--blue-text);
+}
+.resumos-list-scroll {
+  max-height: calc(100vh - 280px);
+  min-height: 380px;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.resumo-card-item {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 11px 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  position: relative;
+}
+.resumo-card-item:hover {
+  border-color: var(--blue-border);
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+.resumo-card-item.active {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+.resumo-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.resumo-lesson-badge {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--blue);
+  background: rgba(37, 99, 235, 0.08);
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+.resumo-card-status-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.resumo-card-status-pill.completed {
+  background: var(--green-soft);
+  color: var(--green-text);
+  border: 1px solid var(--green-border);
+}
+.resumo-card-status-pill.pending {
+  background: var(--surface-hover);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.resumo-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.resumo-card-sub {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.resumo-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--subtle);
+  margin-top: 2px;
+}
+.resumo-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Reader Area */
+.resumo-viewer-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.resumo-viewer-toolbar {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-hover);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.resumo-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.resumo-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.resumo-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.resumo-toggle-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.resumo-toggle-btn.completed {
+  background: var(--green-soft);
+  color: var(--green-text);
+  border-color: var(--green-border);
+}
+.resumo-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 13px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.resumo-nav-btn:hover:not(:disabled) {
+  background: var(--blue-soft);
+  border-color: var(--blue-border);
+  color: var(--blue-text);
+}
+.resumo-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.resumo-viewer-body {
+  padding: 28px 36px;
+  max-width: 900px;
+  line-height: 1.7;
+}
+.resumo-viewer-header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+}
+.resumo-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.resumo-tag-chip {
+  background: var(--blue-soft);
+  color: var(--blue-text);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+.resumo-viewer-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink-strong);
+  margin: 0 0 8px;
+  line-height: 1.3;
+}
+.resumo-viewer-sub {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+.resumo-viewer-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--subtle);
+  flex-wrap: wrap;
+}
+.resumo-viewer-stats-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.resumo-viewer-content {
+  font-size: 14px;
+  color: var(--ink);
+}
+.resumo-viewer-content h1 {
+  font-size: 20px;
+  margin: 32px 0 14px;
+  border-bottom: 2px solid var(--line);
+  padding-bottom: 6px;
+  color: var(--ink-strong);
+}
+.resumo-viewer-content h2 {
+  font-size: 17px;
+  margin: 26px 0 12px;
+  color: var(--blue-dark);
+}
+.resumo-viewer-content h3 {
+  font-size: 15px;
+  margin: 20px 0 10px;
+  color: var(--ink);
+}
+.resumo-viewer-content h4 {
+  font-size: 13px;
+  margin: 16px 0 8px;
+  color: var(--muted);
+}
+.resumo-viewer-content p {
+  margin: 0 0 14px;
+  line-height: 1.65;
+}
+.resumo-viewer-content ul, .resumo-viewer-content ol {
+  margin: 0 0 14px 22px;
+  padding: 0;
+}
+.resumo-viewer-content li {
+  margin-bottom: 6px;
+}
+.resumo-viewer-footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .resumos-layout {
+    grid-template-columns: 1fr;
+  }
+  .resumos-list-scroll {
+    max-height: 240px;
+    min-height: auto;
+  }
+  .resumo-viewer-body {
+    padding: 18px;
+  }
+}

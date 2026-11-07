@@ -21,11 +21,16 @@ const STORAGE_KEYS = {
   materialReviews: "trilha-material-reviews-v1",
   readingPositions: "trilha-reading-positions-v1",
   calendarCompletions: "trilha-calendar-completions-v1",
+  completedResumos: "trilha-completed-resumos-v1",
 };
 const state = {
   manifest: null,
   activeTab: "dashboard",
   subjectId: null,
+  resumosData: null,
+  activeResumoId: null,
+  resumoSearchQuery: "",
+  resumoStatusFilter: "all",
   subjectCache: new Map(),
   questionIndexCache: null,
   activeMaterialId: null,
@@ -999,11 +1004,12 @@ function setTab(tab) {
   state.activeTab = tab;
   document.querySelectorAll(".nav-link").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
   breadcrumb.textContent = {
-    dashboard: "Visão geral", contents: "Conteúdos", questions: "Questões",
+    dashboard: "Visão geral", contents: "Conteúdos", resumos: "Resumos", questions: "Questões",
     mindmaps: "Mapas mentais", flashcards: "Flashcards", organization: "Organização dos estudos",
-  }[tab];
+  }[tab] || "Visão geral";
   if (tab === "dashboard") renderDashboard();
   if (tab === "contents") renderContents();
+  if (tab === "resumos") renderResumos();
   if (tab === "questions") renderQuestions();
   if (tab === "mindmaps") renderMindmaps();
   if (tab === "flashcards") renderFlashcards();
@@ -1034,6 +1040,10 @@ function buildNavigation() {
   const subjects = state.manifest.subjects;
   document.getElementById("subject-count").textContent = subjects.length;
   document.getElementById("question-count").textContent = state.manifest.totals.questions.toLocaleString("pt-BR");
+  const resumoCountEl = document.getElementById("resumo-count");
+  if (resumoCountEl) {
+    resumoCountEl.textContent = (state.manifest.totals?.resumos || 21).toLocaleString("pt-BR");
+  }
   document.getElementById("subject-list").innerHTML = subjects.map((subject) =>
     `<button class="subject-link ${subject.id === state.subjectId ? "selected" : ""}" data-subject-id="${subject.id}" title="${escapeHtml(subject.name)}"><span class="subject-dot"></span><span>${escapeHtml(subject.name)}</span></button>`
   ).join("");
@@ -2880,6 +2890,242 @@ async function loadQuestionBank(subjectId = null) {
   }
   state.questionBankCache.set(cacheKey, uniqueQuestions);
   return uniqueQuestions;
+}
+
+async function loadResumos() {
+  if (state.resumosData) return state.resumosData;
+  try {
+    state.resumosData = await loadPrivateJson("resumos.json");
+    return state.resumosData;
+  } catch (err) {
+    try {
+      const resp = await fetch("data/resumos.json");
+      if (resp.ok) {
+        state.resumosData = await resp.json();
+        return state.resumosData;
+      }
+    } catch (_) {}
+    throw err;
+  }
+}
+
+async function renderResumos() {
+  view.innerHTML = '<div class="loading-state"><span class="spinner"></span><span>Carregando resumos esquematizados...</span></div>';
+  try {
+    const data = await loadResumos();
+    if (!data || !data.resumos || !data.resumos.length) {
+      view.innerHTML = '<div class="empty-state">Nenhum resumo encontrado.</div>';
+      return;
+    }
+
+    if (!data.resumos.some((r) => r.id === state.activeResumoId)) {
+      state.activeResumoId = data.resumos[0].id;
+    }
+
+    const completed = readStorage(STORAGE_KEYS.completedResumos, {});
+    const totalCount = data.resumos.length;
+    const completedCount = data.resumos.filter((r) => completed[r.id]).length;
+    const percent = Math.round((completedCount / totalCount) * 100);
+
+    const activeResumo = data.resumos.find((r) => r.id === state.activeResumoId) || data.resumos[0];
+    const activeIndex = data.resumos.findIndex((r) => r.id === activeResumo.id);
+    const prevResumo = activeIndex > 0 ? data.resumos[activeIndex - 1] : null;
+    const nextResumo = activeIndex < totalCount - 1 ? data.resumos[activeIndex + 1] : null;
+    const isCompleted = !!completed[activeResumo.id];
+
+    // Filter resumos list based on search and status
+    const query = (state.resumoSearchQuery || "").toLowerCase().trim();
+    const statusFilter = state.resumoStatusFilter || "all";
+    const filteredResumos = data.resumos.filter((r) => {
+      if (statusFilter === "completed" && !completed[r.id]) return false;
+      if (statusFilter === "pending" && completed[r.id]) return false;
+      if (!query) return true;
+      const haystack = `${r.title} ${r.subtitle} ${r.tags.join(" ")} ${r.content.slice(0, 1000)}`.toLowerCase();
+      return haystack.includes(query);
+    });
+
+    view.innerHTML = `
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">ACERVO DE REVISÃO E SÍNTESE</p>
+          <h1>Resumos Esquematizados</h1>
+          <p class="page-subtitle">Direito Tributário para SEFAZ-SP · ${totalCount} aulas com tabelas comparativas e esquemas práticos.</p>
+        </div>
+      </div>
+
+      <div class="resumos-layout">
+        <aside class="resumos-sidebar card">
+          <div class="resumos-sidebar-header">
+            <div class="resumos-progress-box">
+              <div class="resumos-progress-header">
+                <span>Progresso dos Resumos</span>
+                <strong>${completedCount} / ${totalCount} (${percent}%)</strong>
+              </div>
+              <div class="resumos-progress-bar-bg">
+                <div class="resumos-progress-bar-fill" style="width: ${percent}%;"></div>
+              </div>
+            </div>
+
+            <input class="search-input" id="resumos-search-input" type="search" placeholder="Buscar nos resumos (ex.: CTN, IBS, decadência)..." value="${escapeHtml(state.resumoSearchQuery || "")}">
+
+            <div class="resumos-filter-row">
+              <button class="resumos-filter-btn ${statusFilter === "all" ? "active" : ""}" data-status="all" type="button">Todos (${totalCount})</button>
+              <button class="resumos-filter-btn ${statusFilter === "pending" ? "active" : ""}" data-status="pending" type="button">Pendentes (${totalCount - completedCount})</button>
+              <button class="resumos-filter-btn ${statusFilter === "completed" ? "active" : ""}" data-status="completed" type="button">Estudados (${completedCount})</button>
+            </div>
+          </div>
+
+          <div class="resumos-list-scroll">
+            ${filteredResumos.length === 0 ? `
+              <div class="empty-state" style="padding: 24px 12px; font-size: 11px;">Nenhum resumo encontrado para o filtro.</div>
+            ` : filteredResumos.map((r) => {
+              const rDone = !!completed[r.id];
+              const isActive = r.id === activeResumo.id;
+              return `
+                <div class="resumo-card-item ${isActive ? "active" : ""}" data-resumo-id="${r.id}">
+                  <div class="resumo-card-top">
+                    <span class="resumo-lesson-badge">Aula ${String(r.order).padStart(2, "0")}</span>
+                    <span class="resumo-card-status-pill ${rDone ? "completed" : "pending"}">${rDone ? "✓ Estudado" : "Pendente"}</span>
+                  </div>
+                  <strong class="resumo-card-title">${escapeHtml(r.title.replace(/^Aula\s*\d+\s*[-—–:]\s*/i, ""))}</strong>
+                  <div class="resumo-card-sub">${escapeHtml(r.subtitle)}</div>
+                  <div class="resumo-card-meta">
+                    <span>⏱ ~${r.readTimeMinutes} min</span>
+                    ${r.tableCount > 0 ? `<span>📊 ${r.tableCount} ${r.tableCount === 1 ? "tabela" : "tabelas"}</span>` : ""}
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </aside>
+
+        <section class="resumo-viewer-card card">
+          <div class="resumo-viewer-toolbar">
+            <div class="resumo-toolbar-left">
+              <span class="resumo-lesson-badge" style="font-size: 11px;">Aula ${String(activeResumo.order).padStart(2, "0")} de ${totalCount}</span>
+              <button class="resumo-toggle-btn ${isCompleted ? "completed" : ""}" id="toggle-resumo-completed-btn" type="button">
+                ${isCompleted ? "✓ Resumo Concluído" : "○ Marcar como estudado"}
+              </button>
+            </div>
+            <div class="resumo-toolbar-right">
+              <button class="resumo-nav-btn" id="prev-resumo-btn" type="button" ${!prevResumo ? "disabled" : ""} title="${prevResumo ? escapeHtml(prevResumo.title) : ""}">← Anterior</button>
+              <button class="resumo-nav-btn" id="next-resumo-btn" type="button" ${!nextResumo ? "disabled" : ""} title="${nextResumo ? escapeHtml(nextResumo.title) : ""}">Próximo →</button>
+              <button class="resumo-nav-btn" id="copy-resumo-btn" type="button" title="Copiar texto do resumo">📋 Copiar</button>
+            </div>
+          </div>
+
+          <div class="resumo-viewer-body">
+            <header class="resumo-viewer-header">
+              <div class="resumo-tags-row">
+                <span class="resumo-tag-chip">DIREITO TRIBUTÁRIO</span>
+                ${activeResumo.tags.map((tag) => `<span class="resumo-tag-chip">${escapeHtml(tag)}</span>`).join("")}
+              </div>
+              <h1 class="resumo-viewer-title">${escapeHtml(activeResumo.title)}</h1>
+              <p class="resumo-viewer-sub">${escapeHtml(activeResumo.subtitle)}</p>
+              <div class="resumo-viewer-stats-bar">
+                <span>⏱ Leitura estimada: <strong>~${activeResumo.readTimeMinutes} min</strong></span>
+                <span>📝 Palavras: <strong>${activeResumo.wordCount.toLocaleString("pt-BR")}</strong></span>
+                ${activeResumo.tableCount > 0 ? `<span>📊 Tabelas esquematizadas: <strong>${activeResumo.tableCount}</strong></span>` : ""}
+              </div>
+            </header>
+
+            <article class="resumo-viewer-content reader-body">
+              ${renderMarkdown(activeResumo.content)}
+            </article>
+
+            <footer class="resumo-viewer-footer">
+              <button class="resumo-nav-btn" id="footer-prev-resumo-btn" type="button" ${!prevResumo ? "disabled" : ""}>← ${prevResumo ? escapeHtml(prevResumo.title.slice(0, 30)) + "..." : "Anterior"}</button>
+              <button class="resumo-toggle-btn ${isCompleted ? "completed" : ""}" id="footer-toggle-resumo-btn" type="button">
+                ${isCompleted ? "✓ Concluído" : "○ Marcar como estudado"}
+              </button>
+              <button class="resumo-nav-btn" id="footer-next-resumo-btn" type="button" ${!nextResumo ? "disabled" : ""}>${nextResumo ? escapeHtml(nextResumo.title.slice(0, 30)) + "..." : "Próximo"} →</button>
+            </footer>
+          </div>
+        </section>
+      </div>
+    `;
+
+    // Event listeners
+    const searchInput = document.getElementById("resumos-search-input");
+    searchInput?.addEventListener("input", (e) => {
+      state.resumoSearchQuery = e.target.value;
+      renderResumos();
+      setTimeout(() => {
+        const newInput = document.getElementById("resumos-search-input");
+        if (newInput) {
+          newInput.focus();
+          newInput.setSelectionRange(newInput.value.length, newInput.value.length);
+        }
+      }, 0);
+    });
+
+    document.querySelectorAll(".resumos-filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.resumoStatusFilter = btn.dataset.status;
+        renderResumos();
+      });
+    });
+
+    document.querySelectorAll(".resumo-card-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        state.activeResumoId = item.dataset.resumoId;
+        renderResumos();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+
+    const toggleCompletion = () => {
+      const curCompleted = readStorage(STORAGE_KEYS.completedResumos, {});
+      if (curCompleted[activeResumo.id]) {
+        delete curCompleted[activeResumo.id];
+      } else {
+        curCompleted[activeResumo.id] = true;
+      }
+      writeStorage(STORAGE_KEYS.completedResumos, curCompleted);
+      renderResumos();
+    };
+
+    document.getElementById("toggle-resumo-completed-btn")?.addEventListener("click", toggleCompletion);
+    document.getElementById("footer-toggle-resumo-btn")?.addEventListener("click", toggleCompletion);
+
+    const goToPrev = () => {
+      if (prevResumo) {
+        state.activeResumoId = prevResumo.id;
+        renderResumos();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+    const goToNext = () => {
+      if (nextResumo) {
+        state.activeResumoId = nextResumo.id;
+        renderResumos();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+
+    document.getElementById("prev-resumo-btn")?.addEventListener("click", goToPrev);
+    document.getElementById("footer-prev-resumo-btn")?.addEventListener("click", goToPrev);
+    document.getElementById("next-resumo-btn")?.addEventListener("click", goToNext);
+    document.getElementById("footer-next-resumo-btn")?.addEventListener("click", goToNext);
+
+    document.getElementById("copy-resumo-btn")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(`${activeResumo.title}\n${activeResumo.subtitle}\n\n${activeResumo.content}`);
+        const btn = document.getElementById("copy-resumo-btn");
+        if (btn) {
+          const original = btn.textContent;
+          btn.textContent = "✓ Copiado!";
+          setTimeout(() => { btn.textContent = original; }, 2000);
+        }
+      } catch (_) {
+        showNotice("Não foi possível copiar o texto automaticamente.");
+      }
+    });
+
+  } catch (err) {
+    console.error("Erro ao carregar resumos:", err);
+    view.innerHTML = `<div class="empty-state">Não foi possível carregar os resumos esquematizados: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function renderQuestions() {

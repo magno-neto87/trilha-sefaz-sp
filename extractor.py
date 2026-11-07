@@ -817,16 +817,35 @@ def extract(root: Path, output: Path, source_format: str = "auto") -> dict[str, 
             encoding="utf-8",
         )
 
+    resumos_file = output / "resumos.json"
+    total_resumos = 0
+    resumo_dir = (root / "Resumo_tributario") if (root / "Resumo_tributario").is_dir() else (root.parent / "Resumo_tributario")
+    if resumo_dir.is_dir():
+        try:
+            from build_resumos import build_all_resumos
+            res_data = build_all_resumos(resumo_dir, resumos_file)
+            total_resumos = res_data.get("total", 0)
+        except Exception as e:
+            print(f"Aviso ao extrair resumos: {e}", file=sys.stderr)
+    elif resumos_file.exists():
+        try:
+            res_data = json.loads(resumos_file.read_text(encoding="utf-8"))
+            total_resumos = res_data.get("total", 0)
+        except Exception:
+            pass
+
     manifest = {
         "generatedAt": __import__("datetime").datetime.now().astimezone().isoformat(timespec="seconds"),
         "subjects": subjects,
         "materials": manifest_materials,
         "questionIndexFile": "question-index.json",
+        "resumosFile": "resumos.json" if resumos_file.exists() else None,
         "totals": {
             "subjects": len(subjects),
             "materials": len(manifest_materials),
             "questions": total_questions,
             "flashcards": total_cards,
+            "resumos": total_resumos,
         },
     }
     output.mkdir(parents=True, exist_ok=True)

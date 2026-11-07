@@ -77,10 +77,13 @@ def main():
     print(f"Iniciando envio para o bucket '{BUCKET_NAME}'...")
     print(f"Total: {totals.get('questions', 0)} questoes, {totals.get('materials', 0)} materiais, {totals.get('subjects', 0)} disciplinas.\n")
 
+    resumos_file = data_dir / "resumos.json"
     files_to_upload = [
         (manifest_file, "manifest.json"),
         (index_file, "question-index.json"),
     ]
+    if resumos_file.exists():
+        files_to_upload.append((resumos_file, "resumos.json"))
 
     for subj_file in sorted(subjects_dir.glob("*.json")):
         files_to_upload.append((subj_file, f"subjects/{subj_file.name}"))
